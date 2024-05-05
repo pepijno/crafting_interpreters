@@ -1,0 +1,35 @@
+# We'll use defaults from the LLVM style, but with 4 columns indentation.
+BasedOnStyle: GNU
+IndentWidth: 4
+DerivePointerAlignment: false
+PointerAlignment: Left
+AlignAfterOpenBracket: BlockIndent
+AlignArrayOfStructures: Right
+AlignConsecutiveAssignments: Consecutive
+AlignConsecutiveMacros: Consecutive
+AlignEscapedNewlines: Left
+AlignOperands: AlignAfterOperator
+AllowAllArgumentsOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: true
+AllowShortBlocksOnASingleLine: Never
+AllowShortEnumsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AlwaysBreakBeforeMultilineStrings: true
+BreakBeforeBraces: Attach
+ColumnLimit: 80
+IncludeBlocks: Regroup
+IndentCaseLabels: true
+InsertBraces: true
+InsertNewlineAtEOF: true
+KeepEmptyLinesAtTheStartOfBlocks: false
+Language: Cpp
+QualifierAlignment: Right
+ReferenceAlignment: Left
+SpaceAfterCStyleCast: true
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeParens: ControlStatements
+SpaceInEmptyBlock: true
+
+PenaltyReturnTypeOnItsOwnLine: 1000
