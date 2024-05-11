@@ -1,5 +1,7 @@
 #include "compiler.h"
 
+#include <string.h>
+
 #ifdef DEBUG_PRINT_CODE
 #include "debug.h"
 #endif
@@ -32,13 +34,25 @@ enum precedence_e {
 
 typedef void (*parse_fn_t)(bool can_assign);
 
-struct parser_rule_t {
+struct parse_rule_t {
     parse_fn_t prefix;
     parse_fn_t infix;
     enum precedence_e precedence;
 };
 
+struct local_t {
+    struct token_t name;
+    i32 depth;
+};
+
+struct compiler_t {
+    struct local_t locals[UINT8_COUNT];
+    i32 local_count;
+    i32 scope_depth;
+};
+
 struct parser_t parser;
+struct compiler_t* current = nullptr;
 struct chunk_t* compiling_chunk;
 
 static void
@@ -148,6 +162,13 @@ emit_constant(struct value_t value) {
 }
 
 static void
+init_compiler(struct compiler_t compiler[static 1]) {
+    compiler->local_count = 0;
+    compiler->scope_depth = 0;
+    current               = compiler;
+}
+
+static void
 end_compiler() {
     emit_return();
 #ifdef DEBUG_PRINT_CODE
@@ -157,16 +178,32 @@ end_compiler() {
 #endif
 }
 
+static void
+begin_scope() {
+    current->scope_depth += 1;
+}
+
+static void
+end_scope() {
+    current->scope_depth -= 1;
+    while (current->local_count > 0
+           && current->locals[current->local_count - 1].depth
+                  > current->scope_depth) {
+        emit_byte(OP_POP);
+        current->local_count--;
+    }
+}
+
 static void expression();
 static void statement();
 static void declaration();
-static struct parser_rule_t* get_rule(enum token_type_e type);
+static struct parse_rule_t* get_rule(enum token_type_e type);
 static void parse_precedence(enum precedence_e precedence);
 
 static void
 binary(bool can_assign) {
     enum token_type_e operatorType = parser.previous.type;
-    struct parser_rule_t* rule     = get_rule(operatorType);
+    struct parse_rule_t* rule      = get_rule(operatorType);
     parse_precedence((enum precedence_e)(rule->precedence + 1));
 
     switch (operatorType) {
@@ -242,18 +279,84 @@ string(bool can_assign) {
 }
 
 static u8
-identifier_constant(struct token_t* name) {
+identifier_constant(struct token_t name[static 1]) {
     return make_constant(OBJECT_VAL(copy_string(name->start, name->length)));
+}
+
+static bool
+identifiers_equal(struct token_t a[static 1], struct token_t b[static 1]) {
+    if (a->length != b->length) {
+        return false;
+    }
+    return memcmp(a->start, b->start, a->length) == 0;
+}
+
+static i32
+resolve_local(
+    struct compiler_t compiler[static 1], struct token_t name[static 1]
+) {
+    for (int i = compiler->local_count - 1; i >= 0; i--) {
+        struct local_t* local = &compiler->locals[i];
+        if (identifiers_equal(name, &local->name)) {
+            if (local->depth == -1) {
+                error("Can't read local variable in its own initializer.");
+            }
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+static void
+add_local(struct token_t name) {
+    if (current->local_count == UINT8_COUNT) {
+        error("Too many local variables in function.");
+        return;
+    }
+
+    struct local_t* local = &current->locals[current->local_count];
+    current->local_count += 1;
+    local->name  = name;
+    local->depth = -1;
+}
+
+static void
+declare_variable() {
+    if (current->scope_depth == 0) {
+        return;
+    }
+    struct token_t* name = &parser.previous;
+    for (i32 i = current->local_count - 1; i >= 0; i--) {
+        struct local_t* local = &current->locals[i];
+        if (local->depth != -1 && local->depth < current->scope_depth) {
+            break;
+        }
+
+        if (identifiers_equal(name, &local->name)) {
+            error("Already a variable with this name in this scope.");
+        }
+    }
+    add_local(*name);
 }
 
 static void
 named_variable(struct token_t name, bool can_assign) {
-    uint8_t arg = identifier_constant(&name);
+    uint8_t get_op, set_op;
+    i32 arg = resolve_local(current, &name);
+    if (arg != -1) {
+        get_op = OP_GET_LOCAL;
+        set_op = OP_SET_LOCAL;
+    } else {
+        arg    = identifier_constant(&name);
+        get_op = OP_GET_GLOBAL;
+        set_op = OP_SET_GLOBAL;
+    }
     if (can_assign && match(TOKEN_EQUAL)) {
         expression();
-        emit_bytes(OP_SET_GLOBAL, arg);
+        emit_bytes(set_op, (uint8_t) arg);
     } else {
-        emit_bytes(OP_GET_GLOBAL, arg);
+        emit_bytes(get_op, (uint8_t) arg);
     }
 }
 
@@ -282,7 +385,7 @@ unary(bool can_assign) {
     }
 }
 
-struct parser_rule_t rules[] = {
+struct parse_rule_t rules[] = {
     [TOKEN_LEFT_PAREN]    = {grouping, nullptr,       PREC_NONE},
     [TOKEN_RIGHT_PAREN]   = { nullptr, nullptr,       PREC_NONE},
     [TOKEN_LEFT_BRACE]    = { nullptr, nullptr,       PREC_NONE},
@@ -351,15 +454,30 @@ parse_precedence(enum precedence_e precedence) {
 static u8
 parse_variable(char const* error_message) {
     consume(TOKEN_IDENTIFIER, error_message);
+
+    declare_variable();
+    if (current->scope_depth > 0) {
+        return 0;
+    }
+
     return identifier_constant(&parser.previous);
 }
 
 static void
+mark_initialized() {
+    current->locals[current->local_count - 1].depth = current->scope_depth;
+}
+
+static void
 define_variable(u8 global) {
+    if (current->scope_depth > 0) {
+        mark_initialized();
+        return;
+    }
     emit_bytes(OP_DEFINE_GLOBAL, global);
 }
 
-static struct parser_rule_t*
+static struct parse_rule_t*
 get_rule(enum token_type_e type) {
     return &rules[type];
 }
@@ -367,6 +485,15 @@ get_rule(enum token_type_e type) {
 static void
 expression() {
     parse_precedence(PREC_ASSIGNMENT);
+}
+
+static void
+block() {
+    while (!check(TOKEN_RIGHT_BRACE) && !check(TOKEN_EOF)) {
+        declaration();
+    }
+
+    consume(TOKEN_RIGHT_BRACE, "Expect '}' after block.");
 }
 
 static void
@@ -441,6 +568,10 @@ static void
 statement() {
     if (match(TOKEN_PRINT)) {
         print_statement();
+    } else if (match(TOKEN_LEFT_BRACE)) {
+        begin_scope();
+        block();
+        end_scope();
     } else {
         expression_statement();
     }
@@ -449,6 +580,8 @@ statement() {
 bool
 compile(char const* source, struct chunk_t chunk[static 1]) {
     init_scanner(source);
+    struct compiler_t compiler;
+    init_compiler(&compiler);
     compiling_chunk = chunk;
 
     parser.had_error  = false;

@@ -18,6 +18,13 @@ simple_instruction(char const* name, i32 offset) {
 }
 
 static i32
+byte_instruction(char const* name, struct chunk_t chunk[static 1], i32 offset) {
+    uint8_t slot = chunk->code[offset + 1];
+    printf("%-16s %4d\n", name, slot);
+    return offset + 2;
+}
+
+static i32
 constant_instruction(
     char const* name, struct chunk_t chunk[static 1], i32 offset
 ) {
@@ -51,6 +58,10 @@ disassemble_instruction(struct chunk_t chunk[static 1], i32 offset) {
             return simple_instruction("OP_POP", offset);
         case OP_DEFINE_GLOBAL:
             return constant_instruction("OP_DEFINE_GLOBAL", chunk, offset);
+        case OP_GET_LOCAL:
+            return byte_instruction("OP_GET_LOCAL", chunk, offset);
+        case OP_SET_LOCAL:
+            return byte_instruction("OP_SET_LOCAL", chunk, offset);
         case OP_GET_GLOBAL:
             return constant_instruction("OP_GET_GLOBAL", chunk, offset);
         case OP_SET_GLOBAL:
