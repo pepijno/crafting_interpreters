@@ -3,22 +3,30 @@
 CC := gcc
 CFLAGS := -g -std=c2x -Wall -Wextra -Wpedantic
 
-.PHONY: all
-all: main
+target := main
+srcdir := src
+depdir := .dep
+objdir := .obj
 
-objects := \
-	chunk.o \
-	debug.o \
-	main.o \
-	memory.o \
-	value.o
+.PHONY: all
+all: main directories
+
+sources := $(wildcard $(srcdir)/*.c)
+objects := $(patsubst %.c,%.o,$(sources))
+depends := $(patsubst %.c,%.d,$(sources))
 
 main: $(objects)
-	$(CC) -o $@ $(objects)
+	$(CC) $(CFLAGS) $^ -o $@
 
-.c.o:
-	$(CC) $(CFLAGS) -c -o $@ $<
+directories:
+	@mkdir -p $(depdir)
+	@mkdir -p $(objdir)
+
+-include $(depends)
+
+%.o: %.c Makefile
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
 .PHONY: clean
 clean:
-	@rm -rf -- main $(objects)
+	rm -rf -- main $(objects) $(depends)

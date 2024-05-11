@@ -39,7 +39,7 @@ write_chunk(struct chunk_t chunk[static 1], u8 byte, i32 line) {
 }
 
 i32
-add_constant(struct chunk_t chunk[static 1], value_t value) {
+add_constant(struct chunk_t chunk[static 1], struct value_t value) {
     write_value_array(&chunk->constants, value);
     return chunk->constants.count - 1;
 }
