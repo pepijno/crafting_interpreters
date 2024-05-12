@@ -1,30 +1,37 @@
 #pragma once
 
-#include "chunk.h"
+#include "object.h"
 #include "table.h"
 
-#define STACK_MAX 256
+#define FRAMES_MAX 64
+#define STACK_MAX (FRAMES_MAX * UINT8_COUNT)
 
-struct vm_t {
-    struct chunk_t* chunk;
+struct call_frame {
+    struct object_function* function;
     u8* ip;
-    struct value_t stack[STACK_MAX];
-    struct value_t* stack_top;
-	struct table_t globals;
-	struct table_t strings;
-	struct object_t* objects;
+    struct value* slots;
 };
 
-enum interpret_result_e {
+struct vm {
+    struct call_frame frames[FRAMES_MAX];
+    i32 frame_count;
+    struct value stack[STACK_MAX];
+    struct value* stack_top;
+    struct table globals;
+    struct table strings;
+    struct object* objects;
+};
+
+enum interpret_result {
     INTERPRET_OK,
     INTERPRET_COMPILE_ERROR,
     INTERPRET_RUNTIME_ERROR,
 };
 
-extern struct vm_t vm;
+extern struct vm vm;
 
 void init_vm();
 void free_vm();
-enum interpret_result_e interpret(char const* source);
-void push(struct value_t value);
-struct value_t pop();
+enum interpret_result interpret(char const* source);
+void push(struct value value);
+struct value pop();

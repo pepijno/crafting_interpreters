@@ -12,8 +12,8 @@
 #include <stdlib.h>
 
 struct parser_t {
-    struct token_t current;
-    struct token_t previous;
+    struct token current;
+    struct token previous;
     bool had_error;
     bool panic_mode;
 };
@@ -41,11 +41,15 @@ struct parse_rule_t {
 };
 
 struct local_t {
-    struct token_t name;
+    struct token name;
     i32 depth;
 };
 
 struct compiler_t {
+    struct compiler_t* enclosing;
+    struct object_function* function;
+    enum function_type type;
+
     struct local_t locals[UINT8_COUNT];
     i32 local_count;
     i32 scope_depth;
@@ -53,10 +57,14 @@ struct compiler_t {
 
 struct parser_t parser;
 struct compiler_t* current = nullptr;
-struct chunk_t* compiling_chunk;
+
+static struct chunk*
+current_chunk() {
+    return &current->function->chunk;
+}
 
 static void
-error_at(struct token_t token[static 1], char const* message) {
+error_at(struct token token[static 1], char const* message) {
     if (parser.panic_mode) {
         return;
     }
@@ -101,7 +109,7 @@ advance() {
 }
 
 static void
-consume(enum token_type_e type, char const* message) {
+consume(enum token_type type, char const* message) {
     if (parser.current.type == type) {
         advance();
         return;
@@ -111,22 +119,17 @@ consume(enum token_type_e type, char const* message) {
 }
 
 static bool
-check(enum token_type_e type) {
+check(enum token_type type) {
     return parser.current.type == type;
 }
 
 static bool
-match(enum token_type_e type) {
+match(enum token_type type) {
     if (!check(type)) {
         return false;
     }
     advance();
     return true;
-}
-
-static struct chunk_t*
-current_chunk() {
-    return compiling_chunk;
 }
 
 static void
@@ -163,11 +166,12 @@ emit_jump(uint8_t instruction) {
 
 static void
 emit_return() {
+    emit_byte(OP_NIL);
     emit_byte(OP_RETURN);
 }
 
 static u8
-make_constant(struct value_t value) {
+make_constant(struct value value) {
     i32 constant = add_constant(current_chunk(), value);
     if (constant > UINT8_MAX) {
         error("Too many constants in one chunk.");
@@ -178,7 +182,7 @@ make_constant(struct value_t value) {
 }
 
 static void
-emit_constant(struct value_t value) {
+emit_constant(struct value value) {
     emit_bytes(OP_CONSTANT, make_constant(value));
 }
 
@@ -196,20 +200,40 @@ patch_jump(i32 offset) {
 }
 
 static void
-init_compiler(struct compiler_t compiler[static 1]) {
+init_compiler(struct compiler_t compiler[static 1], enum function_type type) {
+    compiler->enclosing   = current;
+    compiler->function    = nullptr;
+    compiler->type        = type;
     compiler->local_count = 0;
     compiler->scope_depth = 0;
+    compiler->function    = new_function();
     current               = compiler;
+    if (type != TYPE_SCRIPT) {
+        current->function->name
+            = copy_string(parser.previous.start, parser.previous.length);
+    }
+
+    struct local_t* local = &current->locals[current->local_count];
+    current->local_count += 1;
+    local->name.start  = "";
+    local->name.length = 0;
 }
 
-static void
+static struct object_function*
 end_compiler() {
     emit_return();
+    struct object_function* function = current->function;
 #ifdef DEBUG_PRINT_CODE
     if (!parser.had_error) {
-        disassemble_chunk(current_chunk(), "code");
+        disassemble_chunk(
+            current_chunk(),
+            function->name != nullptr ? function->name->chars : "<script>"
+        );
     }
 #endif
+
+    current = current->enclosing;
+    return function;
 }
 
 static void
@@ -231,7 +255,7 @@ end_scope() {
 static void expression();
 static void statement();
 static void declaration();
-static struct parse_rule_t* get_rule(enum token_type_e type);
+static struct parse_rule_t* get_rule(enum token_type type);
 static void parse_precedence(enum precedence_e precedence);
 
 static void
@@ -258,7 +282,7 @@ or_(bool can_assign) {
 
 static void
 binary(bool can_assign) {
-    enum token_type_e operatorType = parser.previous.type;
+    enum token_type operatorType = parser.previous.type;
     struct parse_rule_t* rule      = get_rule(operatorType);
     parse_precedence((enum precedence_e)(rule->precedence + 1));
 
@@ -298,6 +322,28 @@ binary(bool can_assign) {
     }
 }
 
+static u8
+argument_list() {
+    u8 arg_count = 0;
+    if (!check(TOKEN_RIGHT_PAREN)) {
+        do {
+            expression();
+            if (arg_count == 255) {
+                error("Can't have more than 255 arguments.");
+            }
+            arg_count += 1;
+        } while (match(TOKEN_COMMA));
+    }
+    consume(TOKEN_RIGHT_PAREN, "Expect ')' after arguments.");
+    return arg_count;
+}
+
+static void
+call(bool canAssign) {
+    u8 argCount = argument_list();
+    emit_bytes(OP_CALL, argCount);
+}
+
 static void
 literal(bool can_assign) {
     switch (parser.previous.type) {
@@ -335,12 +381,12 @@ string(bool can_assign) {
 }
 
 static u8
-identifier_constant(struct token_t name[static 1]) {
+identifier_constant(struct token name[static 1]) {
     return make_constant(OBJECT_VAL(copy_string(name->start, name->length)));
 }
 
 static bool
-identifiers_equal(struct token_t a[static 1], struct token_t b[static 1]) {
+identifiers_equal(struct token a[static 1], struct token b[static 1]) {
     if (a->length != b->length) {
         return false;
     }
@@ -349,7 +395,7 @@ identifiers_equal(struct token_t a[static 1], struct token_t b[static 1]) {
 
 static i32
 resolve_local(
-    struct compiler_t compiler[static 1], struct token_t name[static 1]
+    struct compiler_t compiler[static 1], struct token name[static 1]
 ) {
     for (int i = compiler->local_count - 1; i >= 0; i--) {
         struct local_t* local = &compiler->locals[i];
@@ -365,7 +411,7 @@ resolve_local(
 }
 
 static void
-add_local(struct token_t name) {
+add_local(struct token name) {
     if (current->local_count == UINT8_COUNT) {
         error("Too many local variables in function.");
         return;
@@ -382,7 +428,7 @@ declare_variable() {
     if (current->scope_depth == 0) {
         return;
     }
-    struct token_t* name = &parser.previous;
+    struct token* name = &parser.previous;
     for (i32 i = current->local_count - 1; i >= 0; i--) {
         struct local_t* local = &current->locals[i];
         if (local->depth != -1 && local->depth < current->scope_depth) {
@@ -397,7 +443,7 @@ declare_variable() {
 }
 
 static void
-named_variable(struct token_t name, bool can_assign) {
+named_variable(struct token name, bool can_assign) {
     uint8_t get_op, set_op;
     i32 arg = resolve_local(current, &name);
     if (arg != -1) {
@@ -423,7 +469,7 @@ variable(bool can_assign) {
 
 static void
 unary(bool can_assign) {
-    enum token_type_e operatorType = parser.previous.type;
+    enum token_type operatorType = parser.previous.type;
 
     // Compile the operand.
     parse_precedence(PREC_UNARY);
@@ -442,7 +488,7 @@ unary(bool can_assign) {
 }
 
 struct parse_rule_t rules[] = {
-    [TOKEN_LEFT_PAREN]    = {grouping, nullptr,       PREC_NONE},
+    [TOKEN_LEFT_PAREN]    = {grouping,    call,       PREC_CALL},
     [TOKEN_RIGHT_PAREN]   = { nullptr, nullptr,       PREC_NONE},
     [TOKEN_LEFT_BRACE]    = { nullptr, nullptr,       PREC_NONE},
     [TOKEN_RIGHT_BRACE]   = { nullptr, nullptr,       PREC_NONE},
@@ -521,6 +567,9 @@ parse_variable(char const* error_message) {
 
 static void
 mark_initialized() {
+    if (current->scope_depth == 0) {
+        return;
+    }
     current->locals[current->local_count - 1].depth = current->scope_depth;
 }
 
@@ -534,7 +583,7 @@ define_variable(u8 global) {
 }
 
 static struct parse_rule_t*
-get_rule(enum token_type_e type) {
+get_rule(enum token_type type) {
     return &rules[type];
 }
 
@@ -550,6 +599,39 @@ block() {
     }
 
     consume(TOKEN_RIGHT_BRACE, "Expect '}' after block.");
+}
+
+static void
+function(enum function_type type) {
+    struct compiler_t compiler;
+    init_compiler(&compiler, type);
+    begin_scope();
+
+    consume(TOKEN_LEFT_PAREN, "Expect '(' after function name.");
+    if (!check(TOKEN_RIGHT_PAREN)) {
+        do {
+            current->function->arity += 1;
+            if (current->function->arity > 255) {
+                error_at_current("Can't have more than 255 parameters.");
+            }
+            u8 constant = parse_variable("Expected parameter name.");
+            define_variable(constant);
+        } while (match(TOKEN_COMMA));
+    }
+    consume(TOKEN_RIGHT_PAREN, "Expect ')' after parameters.");
+    consume(TOKEN_LEFT_BRACE, "Expect '{' before function body.");
+    block();
+
+    struct object_function* function = end_compiler();
+    emit_bytes(OP_CONSTANT, make_constant(OBJECT_VAL(function)));
+}
+
+static void
+fun_declaration() {
+    uint8_t global = parse_variable("Expect function name.");
+    mark_initialized();
+    function(TYPE_FUNCTION);
+    define_variable(global);
 }
 
 static void
@@ -604,6 +686,20 @@ print_statement() {
 }
 
 static void
+return_statement() {
+    if (current->type == TYPE_SCRIPT) {
+        error("Can't return from top-level code.");
+    }
+    if (match(TOKEN_SEMICOLON)) {
+        emit_return();
+    } else {
+        expression();
+        consume(TOKEN_SEMICOLON, "Expect ';' after return value.");
+        emit_byte(OP_RETURN);
+    }
+}
+
+static void
 while_statement() {
     i32 loop_start = current_chunk()->count;
     consume(TOKEN_LEFT_PAREN, "Expect '(' after 'while'.");
@@ -632,7 +728,7 @@ for_statement() {
     }
 
     i32 loop_start = current_chunk()->count;
-    i32 exit_jump = -1;
+    i32 exit_jump  = -1;
     if (!match(TOKEN_SEMICOLON)) {
         expression();
         consume(TOKEN_SEMICOLON, "Expect ';' after loop condition.");
@@ -692,7 +788,9 @@ synchronize() {
 
 static void
 declaration() {
-    if (match(TOKEN_VAR)) {
+    if (match(TOKEN_FUN)) {
+        fun_declaration();
+    } else if (match(TOKEN_VAR)) {
         var_declaration();
     } else {
         statement();
@@ -709,6 +807,8 @@ statement() {
         print_statement();
     } else if (match(TOKEN_IF)) {
         if_statement();
+    } else if (match(TOKEN_RETURN)) {
+        return_statement();
     } else if (match(TOKEN_WHILE)) {
         while_statement();
     } else if (match(TOKEN_FOR)) {
@@ -722,12 +822,11 @@ statement() {
     }
 }
 
-bool
-compile(char const* source, struct chunk_t chunk[static 1]) {
+struct object_function*
+compile(char const* source) {
     init_scanner(source);
     struct compiler_t compiler;
-    init_compiler(&compiler);
-    compiling_chunk = chunk;
+    init_compiler(&compiler, TYPE_SCRIPT);
 
     parser.had_error  = false;
     parser.panic_mode = false;
@@ -738,6 +837,6 @@ compile(char const* source, struct chunk_t chunk[static 1]) {
         declaration();
     }
 
-    end_compiler();
-    return !parser.had_error;
+    struct object_function* function = end_compiler();
+    return parser.had_error ? nullptr : function;
 }

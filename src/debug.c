@@ -3,7 +3,7 @@
 #include <stdio.h>
 
 void
-disassemble_chunk(struct chunk_t chunk[static 1], char const* name) {
+disassemble_chunk(struct chunk chunk[static 1], char const* name) {
     printf("=== %s ===\n", name);
 
     for (i32 offset = 0; offset < chunk->count;) {
@@ -18,7 +18,7 @@ simple_instruction(char const* name, i32 offset) {
 }
 
 static i32
-byte_instruction(char const* name, struct chunk_t chunk[static 1], i32 offset) {
+byte_instruction(char const* name, struct chunk chunk[static 1], i32 offset) {
     uint8_t slot = chunk->code[offset + 1];
     printf("%-16s %4d\n", name, slot);
     return offset + 2;
@@ -26,7 +26,7 @@ byte_instruction(char const* name, struct chunk_t chunk[static 1], i32 offset) {
 
 static i32
 jump_instruction(
-    char const* name, i32 sign, struct chunk_t* chunk, i32 offset
+    char const* name, i32 sign, struct chunk* chunk, i32 offset
 ) {
     uint16_t jump = (uint16_t) (chunk->code[offset + 1] << 8);
     jump |= chunk->code[offset + 2];
@@ -36,7 +36,7 @@ jump_instruction(
 
 static i32
 constant_instruction(
-    char const* name, struct chunk_t chunk[static 1], i32 offset
+    char const* name, struct chunk chunk[static 1], i32 offset
 ) {
     u8 constant = chunk->code[offset + 1];
     printf("%-16s %4d '", name, constant);
@@ -46,7 +46,7 @@ constant_instruction(
 }
 
 i32
-disassemble_instruction(struct chunk_t chunk[static 1], i32 offset) {
+disassemble_instruction(struct chunk chunk[static 1], i32 offset) {
     printf("%04d ", offset);
     if (offset > 0 && chunk->lines[offset] == chunk->lines[offset - 1]) {
         printf("   | ");
@@ -102,6 +102,8 @@ disassemble_instruction(struct chunk_t chunk[static 1], i32 offset) {
             return jump_instruction("OP_JUMP_IF_FALSE", 1, chunk, offset);
         case OP_LOOP:
             return jump_instruction("OP_LOOP", -1, chunk, offset);
+        case OP_CALL:
+            return byte_instruction("OP_CALL", chunk, offset);
         case OP_RETURN:
             return simple_instruction("OP_RETURN", offset);
         default:

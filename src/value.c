@@ -7,8 +7,8 @@
 #include <string.h>
 
 void
-init_value_array(struct value_array_t array[static 1]) {
-    *array = (struct value_array_t){
+init_value_array(struct value_array array[static 1]) {
+    *array = (struct value_array){
         .capacity = 0,
         .count    = 0,
         .values   = nullptr,
@@ -16,12 +16,12 @@ init_value_array(struct value_array_t array[static 1]) {
 }
 
 void
-write_value_array(struct value_array_t array[static 1], struct value_t value) {
+write_value_array(struct value_array array[static 1], struct value value) {
     if (array->capacity < array->count + 1) {
         i32 oldCapacity = array->capacity;
         array->capacity = grow_capacity(oldCapacity);
         array->values   = grow_array(
-            struct value_t, array->values, oldCapacity, array->capacity
+            struct value, array->values, oldCapacity, array->capacity
         );
     }
 
@@ -30,13 +30,13 @@ write_value_array(struct value_array_t array[static 1], struct value_t value) {
 }
 
 void
-free_value_array(struct value_array_t array[static 1]) {
-    free_array(struct value_t, array->values, array->capacity);
+free_value_array(struct value_array array[static 1]) {
+    free_array(struct value, array->values, array->capacity);
     init_value_array(array);
 }
 
 void
-print_value(struct value_t value) {
+print_value(struct value value) {
     switch (value.type) {
         case VAL_BOOL:
             printf(AS_BOOL(value) ? "true" : "false");
@@ -54,7 +54,7 @@ print_value(struct value_t value) {
 }
 
 bool
-values_equal(struct value_t a, struct value_t b) {
+values_equal(struct value a, struct value b) {
     if (a.type != b.type) {
         return false;
     }

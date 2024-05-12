@@ -10,12 +10,18 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
-struct vm_t vm;
+struct vm vm;
+
+static struct value clock_native(i32 arg_count, struct value* args) {
+  return NUMBER_VAL((double)clock() / CLOCKS_PER_SEC);
+}
 
 static void
 reset_stack() {
-    vm.stack_top = vm.stack;
+    vm.stack_top   = vm.stack;
+    vm.frame_count = 0;
 }
 
 static void
@@ -26,10 +32,28 @@ runtime_error(char const* format, ...) {
     va_end(args);
     fputs("\n", stderr);
 
-    size_t instruction = vm.ip - vm.chunk->code - 1;
-    i32 line           = vm.chunk->lines[instruction];
-    fprintf(stderr, "[line %d] in script\n", line);
+    for (i32 i = vm.frame_count - 1; i >= 0; i--) {
+        struct call_frame* frame         = &vm.frames[i];
+        struct object_function* function = frame->function;
+        size_t instruction = frame->ip - function->chunk.code - 1;
+        fprintf(stderr, "[line %d] in ", function->chunk.lines[instruction]);
+        if (function->name == NULL) {
+            fprintf(stderr, "script\n");
+        } else {
+            fprintf(stderr, "%s()\n", function->name->chars);
+        }
+    }
+
     reset_stack();
+}
+
+static void
+define_native(char const* name, native_function function) {
+    push(OBJECT_VAL(copy_string(name, (int) strlen(name))));
+    push(OBJECT_VAL(new_native(function)));
+    table_set(&vm.globals, AS_STRING(vm.stack[0]), vm.stack[1]);
+    pop();
+    pop();
 }
 
 void
@@ -38,6 +62,8 @@ init_vm() {
     vm.objects = nullptr;
     init_table(&vm.globals);
     init_table(&vm.strings);
+
+    define_native("clock", clock_native);
 }
 
 void
@@ -48,31 +74,75 @@ free_vm() {
 }
 
 void
-push(struct value_t value) {
+push(struct value value) {
     *vm.stack_top = value;
     vm.stack_top += 1;
 }
 
-struct value_t
+struct value
 pop() {
     vm.stack_top -= 1;
     return *vm.stack_top;
 }
 
-static struct value_t
+static struct value
 peek(i32 distance) {
     return vm.stack_top[-1 - distance];
 }
 
 static bool
-is_falsey(struct value_t value) {
+call(struct object_function* function, i32 arg_count) {
+    if (arg_count != function->arity) {
+        runtime_error(
+            "Expected %d arguments but got %d.", function->arity, arg_count
+        );
+        return false;
+    }
+
+    if (vm.frame_count == FRAMES_MAX) {
+        runtime_error("Stack overflow.");
+        return false;
+    }
+
+    struct call_frame* frame = &vm.frames[vm.frame_count];
+    vm.frame_count += 1;
+    frame->function = function;
+    frame->ip       = function->chunk.code;
+    frame->slots    = vm.stack_top - arg_count - 1;
+    return true;
+}
+
+static bool
+call_value(struct value callee, i32 arg_count) {
+    if (IS_OBJECT(callee)) {
+        switch (OBJECT_TYPE(callee)) {
+            case OBJECT_FUNCTION:
+                return call(AS_FUNCTION(callee), arg_count);
+            case OBJECT_NATIVE: {
+                native_function native = AS_NATIVE(callee);
+                struct value result
+                    = native(arg_count, vm.stack_top - arg_count);
+                vm.stack_top -= arg_count - 1;
+                push(result);
+                return true;
+            }
+            default:
+                break; // Non-callable object type.
+        }
+    }
+    runtime_error("Can only call functions and classes.");
+    return false;
+}
+
+static bool
+is_falsey(struct value value) {
     return IS_NIL(value) || (IS_BOOL(value) && !AS_BOOL(value));
 }
 
 static void
 concatenate() {
-    struct object_string_t* b = AS_STRING(pop());
-    struct object_string_t* a = AS_STRING(pop());
+    struct object_string* b = AS_STRING(pop());
+    struct object_string* a = AS_STRING(pop());
 
     i32 length  = a->length + b->length;
     char* chars = ALLOCATE(char, length + 1);
@@ -80,15 +150,18 @@ concatenate() {
     memcpy(chars + a->length, b->chars, b->length);
     chars[length] = '\0';
 
-    struct object_string_t* result = take_string(chars, length);
+    struct object_string* result = take_string(chars, length);
     push(OBJECT_VAL(result));
 }
 
-static enum interpret_result_e
+static enum interpret_result
 run() {
-#define READ_BYTE()     (*vm.ip++)
-#define READ_CONSTANT() (vm.chunk->constants.values[READ_BYTE()])
-#define READ_SHORT()    (vm.ip += 2, (uint16_t) ((vm.ip[-2] << 8) | vm.ip[-1]))
+    struct call_frame* frame = &vm.frames[vm.frame_count - 1];
+
+#define READ_BYTE() (*frame->ip++)
+#define READ_SHORT() \
+    (frame->ip += 2, (uint16_t) ((frame->ip[-2] << 8) | frame->ip[-1]))
+#define READ_CONSTANT() (frame->function->chunk.constants.values[READ_BYTE()])
 #define READ_STRING()   AS_STRING(READ_CONSTANT())
 #define BINARY_OP(valueType, op)                          \
     do {                                                  \
@@ -104,18 +177,21 @@ run() {
     while (true) {
 #ifdef DEBUG_TRACE_EXECUTION
         printf("          ");
-        for (struct value_t* slot = vm.stack; slot < vm.stack_top; slot += 1) {
+        for (struct value* slot = vm.stack; slot < vm.stack_top; slot += 1) {
             printf("[");
             print_value(*slot);
             printf("]");
         }
         printf("\n");
-        disassemble_instruction(vm.chunk, (i32) (vm.ip - vm.chunk->code));
+        disassemble_instruction(
+            &frame->function->chunk,
+            (i32) (frame->ip - frame->function->chunk.code)
+        );
 #endif
         u8 instruction;
         switch (instruction = READ_BYTE()) {
             case OP_CONSTANT: {
-                struct value_t constant = READ_CONSTANT();
+                struct value constant = READ_CONSTANT();
                 push(constant);
                 break;
             }
@@ -132,19 +208,19 @@ run() {
                 pop();
                 break;
             case OP_DEFINE_GLOBAL: {
-                struct object_string_t* name = READ_STRING();
+                struct object_string* name = READ_STRING();
                 table_set(&vm.globals, name, peek(0));
                 pop();
                 break;
             }
             case OP_GET_LOCAL: {
                 uint8_t slot = READ_BYTE();
-                push(vm.stack[slot]);
+                push(frame->slots[slot]);
                 break;
             }
             case OP_GET_GLOBAL: {
-                struct object_string_t* name = READ_STRING();
-                struct value_t value;
+                struct object_string* name = READ_STRING();
+                struct value value;
                 if (!table_get(&vm.globals, name, &value)) {
                     runtime_error("Undefined variable '%s'.", name->chars);
                     return INTERPRET_RUNTIME_ERROR;
@@ -153,12 +229,12 @@ run() {
                 break;
             }
             case OP_SET_LOCAL: {
-                uint8_t slot   = READ_BYTE();
-                vm.stack[slot] = peek(0);
+                uint8_t slot       = READ_BYTE();
+                frame->slots[slot] = peek(0);
                 break;
             }
             case OP_SET_GLOBAL: {
-                struct object_string_t* name = READ_STRING();
+                struct object_string* name = READ_STRING();
                 if (table_set(&vm.globals, name, peek(0))) {
                     table_delete(&vm.globals, name);
                     runtime_error("Undefined variable '%s'.", name->chars);
@@ -167,8 +243,8 @@ run() {
                 break;
             }
             case OP_EQUAL: {
-                struct value_t b = pop();
-                struct value_t a = pop();
+                struct value b = pop();
+                struct value a = pop();
                 push(BOOL_VAL(values_equal(a, b)));
                 break;
             }
@@ -218,23 +294,42 @@ run() {
                 break;
             case OP_JUMP: {
                 uint16_t offset = READ_SHORT();
-                vm.ip += offset;
+                frame->function += offset;
                 break;
             }
             case OP_JUMP_IF_FALSE: {
                 uint16_t offset = READ_SHORT();
                 if (is_falsey(peek(0))) {
-                    vm.ip += offset;
+                    frame->ip += offset;
                 }
                 break;
             }
             case OP_LOOP: {
                 uint16_t offset = READ_SHORT();
-                vm.ip -= offset;
+                frame->ip -= offset;
                 break;
             }
-            case OP_RETURN:
-                return INTERPRET_OK;
+            case OP_CALL: {
+                u8 arg_count = READ_BYTE();
+                if (!call_value(peek(arg_count), arg_count)) {
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                frame = &vm.frames[vm.frame_count - 1];
+                break;
+            }
+            case OP_RETURN: {
+                struct value result = pop();
+                vm.frame_count -= 1;
+                if (vm.frame_count == 0) {
+                    pop();
+                    return INTERPRET_OK;
+                }
+
+                vm.stack_top = frame->slots;
+                push(result);
+                frame = &vm.frames[vm.frame_count - 1];
+                break;
+            }
         }
     }
 
@@ -245,21 +340,15 @@ run() {
 #undef READ_BYTE
 }
 
-enum interpret_result_e
+enum interpret_result
 interpret(char const* source) {
-    struct chunk_t chunk;
-    init_chunk(&chunk);
-
-    if (!compile(source, &chunk)) {
-        free_chunk(&chunk);
+    struct object_function* function = compile(source);
+    if (function == nullptr) {
         return INTERPRET_COMPILE_ERROR;
     }
 
-    vm.chunk = &chunk;
-    vm.ip    = vm.chunk->code;
+    push(OBJECT_VAL(function));
+    call(function, 0);
 
-    enum interpret_result_e result = run();
-
-    free_chunk(&chunk);
-    return result;
+    return run();
 }

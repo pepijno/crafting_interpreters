@@ -20,12 +20,22 @@ reallocate(void* pointer, i32 old_size, i32 new_size) {
 }
 
 static void
-free_object(struct object_t object[static 1]) {
+free_object(struct object object[static 1]) {
     switch (object->type) {
         case OBJECT_STRING: {
-            struct object_string_t* string = (struct object_string_t*) object;
+            struct object_string* string = (struct object_string*) object;
             free_array(char, string->chars, string->length + 1);
-            FREE(struct object_string_t, object);
+            FREE(struct object_string, object);
+            break;
+        }
+        case OBJECT_FUNCTION: {
+            struct object_function* function = (struct object_function*)object;
+            free_chunk(&function->chunk);
+            FREE(struct object_function, object);
+            break;
+        }
+        case OBJECT_NATIVE: {
+            FREE(struct object_native, object);
             break;
         }
     }
@@ -33,9 +43,9 @@ free_object(struct object_t object[static 1]) {
 
 void
 free_objects() {
-    struct object_t* object = vm.objects;
+    struct object* object = vm.objects;
     while (object != nullptr) {
-        struct object_t* next = object->next;
+        struct object* next = object->next;
         free_object(object);
         object = next;
     }

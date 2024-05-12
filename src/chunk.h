@@ -3,7 +3,7 @@
 #include "common.h"
 #include "value.h"
 
-enum op_code_e {
+enum op_code {
     OP_CONSTANT,
     OP_NIL,
     OP_TRUE,
@@ -27,19 +27,20 @@ enum op_code_e {
     OP_JUMP,
     OP_JUMP_IF_FALSE,
     OP_LOOP,
+    OP_CALL,
     OP_RETURN,
 };
 
-struct chunk_t {
+struct chunk {
     i32 count;
     i32 capacity;
     u8* code;
     i32* lines;
-    struct value_array_t constants;
+    struct value_array constants;
 };
 
-void init_chunk(struct chunk_t chunk[static 1]);
-void free_chunk(struct chunk_t chunk[static 1]);
-void write_chunk(struct chunk_t chunk[static 1], u8 byte, i32 line);
+void init_chunk(struct chunk chunk[static 1]);
+void free_chunk(struct chunk chunk[static 1]);
+void write_chunk(struct chunk chunk[static 1], u8 byte, i32 line);
 
-i32 add_constant(struct chunk_t chunk[static 1], struct value_t value);
+i32 add_constant(struct chunk chunk[static 1], struct value value);

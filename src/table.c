@@ -9,24 +9,24 @@
 #define TABLE_MAX_LOAD 0.75
 
 void
-init_table(struct table_t table[static 1]) {
+init_table(struct table table[static 1]) {
     table->count    = 0;
     table->capacity = 0;
     table->entries  = nullptr;
 }
 
 void
-free_table(struct table_t table[static 1]) {
-    free_array(struct entry_t, table->entries, table->capacity);
+free_table(struct table table[static 1]) {
+    free_array(struct entry, table->entries, table->capacity);
     init_table(table);
 }
 
-static struct entry_t*
-find_entry(struct entry_t* entries, i32 capacity, struct object_string_t* key) {
+static struct entry*
+find_entry(struct entry* entries, i32 capacity, struct object_string* key) {
     uint32_t index            = key->hash % capacity;
-    struct entry_t* tombstone = nullptr;
+    struct entry* tombstone = nullptr;
     for (;;) {
-        struct entry_t* entry = &entries[index];
+        struct entry* entry = &entries[index];
         if (entry->key == nullptr) {
             if (IS_NIL(entry->value)) {
                 // Empty entry.
@@ -48,13 +48,13 @@ find_entry(struct entry_t* entries, i32 capacity, struct object_string_t* key) {
 
 bool
 table_get(
-    struct table_t* table, struct object_string_t* key, struct value_t* value
+    struct table* table, struct object_string* key, struct value* value
 ) {
     if (table->count == 0) {
         return false;
     }
 
-    struct entry_t* entry = find_entry(table->entries, table->capacity, key);
+    struct entry* entry = find_entry(table->entries, table->capacity, key);
     if (entry->key == nullptr) {
         return false;
     }
@@ -64,8 +64,8 @@ table_get(
 }
 
 static void
-adjust_capacity(struct table_t* table, int capacity) {
-    struct entry_t* entries = ALLOCATE(struct entry_t, capacity);
+adjust_capacity(struct table* table, int capacity) {
+    struct entry* entries = ALLOCATE(struct entry, capacity);
     for (int i = 0; i < capacity; i++) {
         entries[i].key   = nullptr;
         entries[i].value = NIL_VAL;
@@ -73,33 +73,33 @@ adjust_capacity(struct table_t* table, int capacity) {
 
     table->count = 0;
     for (int i = 0; i < table->capacity; i++) {
-        struct entry_t* entry = &table->entries[i];
+        struct entry* entry = &table->entries[i];
         if (entry->key == nullptr) {
             continue;
         }
 
-        struct entry_t* dest = find_entry(entries, capacity, entry->key);
+        struct entry* dest = find_entry(entries, capacity, entry->key);
         dest->key            = entry->key;
         dest->value          = entry->value;
         table->count += 1;
     }
 
-    free_array(struct entry_t, table->entries, table->capacity);
+    free_array(struct entry, table->entries, table->capacity);
     table->entries  = entries;
     table->capacity = capacity;
 }
 
 bool
 table_set(
-    struct table_t table[static 1], struct object_string_t* key,
-    struct value_t value
+    struct table table[static 1], struct object_string* key,
+    struct value value
 ) {
     if (table->count + 1 > table->capacity * TABLE_MAX_LOAD) {
         int capacity = grow_capacity(table->capacity);
         adjust_capacity(table, capacity);
     }
 
-    struct entry_t* entry = find_entry(table->entries, table->capacity, key);
+    struct entry* entry = find_entry(table->entries, table->capacity, key);
     bool is_new_key       = entry->key == nullptr;
     if (is_new_key && IS_NIL(entry->value)) {
         table->count += 1;
@@ -111,13 +111,13 @@ table_set(
 }
 
 bool
-table_delete(struct table_t* table, struct object_string_t* key) {
+table_delete(struct table* table, struct object_string* key) {
     if (table->count == 0) {
         return false;
     }
 
     // Find the entry.
-    struct entry_t* entry = find_entry(table->entries, table->capacity, key);
+    struct entry* entry = find_entry(table->entries, table->capacity, key);
     if (entry->key == nullptr) {
         return false;
     }
@@ -129,18 +129,18 @@ table_delete(struct table_t* table, struct object_string_t* key) {
 }
 
 void
-tableAddAll(struct table_t* from, struct table_t* to) {
+tableAddAll(struct table* from, struct table* to) {
     for (int i = 0; i < from->capacity; i++) {
-        struct entry_t* entry = &from->entries[i];
+        struct entry* entry = &from->entries[i];
         if (entry->key != nullptr) {
             table_set(to, entry->key, entry->value);
         }
     }
 }
 
-struct object_string_t*
+struct object_string*
 table_find_string(
-    struct table_t* table, char const* chars, i32 length, u32 hash
+    struct table* table, char const* chars, i32 length, u32 hash
 ) {
     if (table->count == 0) {
         return nullptr;
@@ -148,7 +148,7 @@ table_find_string(
 
     u32 index = hash % table->capacity;
     for (;;) {
-        struct entry_t* entry = &table->entries[index];
+        struct entry* entry = &table->entries[index];
         if (entry->key == nullptr) {
             // Stop if we find an empty non-tombstone entry.
             if (IS_NIL(entry->value)) {

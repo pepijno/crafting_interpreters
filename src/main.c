@@ -33,8 +33,8 @@ read_file(char const* path) {
 
 static void
 run_file(char const* path) {
-    char* source                   = read_file(path);
-    enum interpret_result_e result = interpret(source);
+    char* source                 = read_file(path);
+    enum interpret_result result = interpret(source);
     free(source);
 
     if (result == INTERPRET_COMPILE_ERROR) {
@@ -72,33 +72,5 @@ main(int argc, char const* argv[]) {
         fprintf(stderr, "Usage: clox [path]\n");
         exit(64);
     }
-
-    // struct chunk_t chunk;
-    // init_chunk(&chunk);
-    //
-    // i32 constant = add_constant(&chunk, 1.2);
-    // write_chunk(&chunk, OP_CONSTANT, 123);
-    // write_chunk(&chunk, constant, 123);
-    // write_chunk(&chunk, OP_NEGATE, 123);
-    //
-    // constant = add_constant(&chunk, 3.4);
-    // write_chunk(&chunk, OP_CONSTANT, 123);
-    // write_chunk(&chunk, constant, 123);
-    //
-    // write_chunk(&chunk, OP_ADD, 123);
-    //
-    // constant = add_constant(&chunk, 5.6);
-    // write_chunk(&chunk, OP_CONSTANT, 123);
-    // write_chunk(&chunk, constant, 123);
-    //
-    // write_chunk(&chunk, OP_DIVIDE, 123);
-    //
-    // write_chunk(&chunk, OP_RETURN, 123);
-    //
-    // // disassemble_chunk(&chunk, "test chunk");
-    //
-    // interpret(&chunk);
-    //
-    // free_chunk(&chunk);
     return 0;
 }

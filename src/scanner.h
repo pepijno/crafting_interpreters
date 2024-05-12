@@ -1,7 +1,8 @@
 #pragma once
 
 #include "common.h"
-enum token_type_e {
+
+enum token_type {
     // Single-character tokens.
     TOKEN_LEFT_PAREN,
     TOKEN_RIGHT_PAREN,
@@ -49,12 +50,12 @@ enum token_type_e {
     TOKEN_EOF
 };
 
-struct token_t {
-    enum token_type_e type;
+struct token {
+    enum token_type type;
     char const* start;
     i32 length;
     i32 line;
 };
 
 void init_scanner(char const* source);
-struct token_t scan_token();
+struct token scan_token();

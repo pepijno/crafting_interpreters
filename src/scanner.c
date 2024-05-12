@@ -2,13 +2,13 @@
 
 #include <string.h>
 
-struct scanner_t {
+struct scanner {
     char const* start;
     char const* current;
     i32 line;
 };
 
-struct scanner_t scanner;
+struct scanner scanner;
 
 void
 init_scanner(char const* source) {
@@ -22,9 +22,9 @@ is_at_end() {
     return *scanner.current == '\0';
 }
 
-static struct token_t
-make_token(enum token_type_e type) {
-    return (struct token_t){
+static struct token
+make_token(enum token_type type) {
+    return (struct token){
         .type   = type,
         .start  = scanner.start,
         .length = (i32) (scanner.current - scanner.start),
@@ -32,9 +32,9 @@ make_token(enum token_type_e type) {
     };
 }
 
-static struct token_t
+static struct token
 error_token(char const* message) {
-    return (struct token_t){
+    return (struct token){
         .type   = TOKEN_ERROR,
         .start  = message,
         .length = strlen(message),
@@ -103,7 +103,7 @@ skip_whitespace() {
     }
 }
 
-static struct token_t
+static struct token
 string() {
     while (peek() != '"' && !is_at_end()) {
         if (peek() == '\n') {
@@ -126,7 +126,7 @@ is_digit(char c) {
     return c >= '0' && c <= '9';
 }
 
-static struct token_t
+static struct token
 number() {
     while (is_digit(peek())) {
         advance();
@@ -150,8 +150,8 @@ is_alpha(char c) {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
 }
 
-static enum token_type_e
-check_keyword(i32 start, i32 length, char const* rest, enum token_type_e type) {
+static enum token_type
+check_keyword(i32 start, i32 length, char const* rest, enum token_type type) {
     if (scanner.current - scanner.start == start + length
         && memcmp(scanner.start + start, rest, length) == 0) {
         return type;
@@ -160,7 +160,7 @@ check_keyword(i32 start, i32 length, char const* rest, enum token_type_e type) {
     return TOKEN_IDENTIFIER;
 }
 
-static enum token_type_e
+static enum token_type
 identifier_type() {
     switch (scanner.start[0]) {
         case 'a':
@@ -211,7 +211,7 @@ identifier_type() {
     return TOKEN_IDENTIFIER;
 }
 
-static struct token_t
+static struct token
 identifier() {
     while (is_alpha(peek()) || is_digit(peek())) {
         advance();
@@ -219,7 +219,7 @@ identifier() {
     return make_token(identifier_type());
 }
 
-struct token_t
+struct token
 scan_token() {
     skip_whitespace();
     scanner.start = scanner.current;
