@@ -4,7 +4,7 @@
 #include "table.h"
 
 #define FRAMES_MAX 64
-#define STACK_MAX (FRAMES_MAX * UINT8_COUNT)
+#define STACK_MAX  (FRAMES_MAX * UINT8_COUNT)
 
 struct call_frame {
     struct object_closure* closure;
@@ -20,7 +20,13 @@ struct vm {
     struct table globals;
     struct table strings;
     struct object_upvalue* open_upvalues;
+
+    uint64_t bytes_allocated;
+    uint64_t next_gc;
     struct object* objects;
+    i32 gray_count;
+    i32 gray_capacity;
+    struct object** gray_stack;
 };
 
 enum interpret_result {

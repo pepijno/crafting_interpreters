@@ -15,8 +15,14 @@ static struct object*
 allocate_object(size_t size, enum object_type type) {
     struct object* object = (struct object*) reallocate(nullptr, 0, size);
     object->type          = type;
+    object->is_marked     = false;
     object->next          = vm.objects;
     vm.objects            = object;
+
+#ifdef DEBUG_LOG_GC
+    printf("%p allocate %zu for %d\n", (void*) object, size, type);
+#endif
+
     return object;
 }
 
@@ -62,7 +68,9 @@ allocate_string(char* chars, i32 length, i32 hash) {
     string->length = length;
     string->chars  = chars;
     string->hash   = hash;
+    push(OBJECT_VAL(string));
     table_set(&vm.strings, string, NIL_VAL);
+    pop();
     return string;
 }
 

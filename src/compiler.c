@@ -1,5 +1,7 @@
 #include "compiler.h"
 
+#include "memory.h"
+
 #include <string.h>
 
 #ifdef DEBUG_PRINT_CODE
@@ -901,4 +903,13 @@ compile(char const* source) {
 
     struct object_function* function = end_compiler();
     return parser.had_error ? nullptr : function;
+}
+
+void
+mark_compiler_roots() {
+    struct compiler* compiler = current;
+    while (compiler != nullptr) {
+        mark_object((struct object*) compiler->function);
+        compiler = compiler->enclosing;
+    }
 }

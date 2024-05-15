@@ -32,6 +32,7 @@ enum function_type {
 
 struct object {
     enum object_type type;
+    bool is_marked;
     struct object* next;
 };
 

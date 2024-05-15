@@ -2,6 +2,7 @@
 
 #include "memory.h"
 #include "value.h"
+#include "vm.h"
 
 void
 init_chunk(struct chunk chunk[static 1]) {
@@ -40,6 +41,8 @@ write_chunk(struct chunk chunk[static 1], u8 byte, i32 line) {
 
 i32
 add_constant(struct chunk chunk[static 1], struct value value) {
+    push(value);
     write_value_array(&chunk->constants, value);
+    pop();
     return chunk->constants.count - 1;
 }

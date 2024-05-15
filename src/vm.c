@@ -62,6 +62,14 @@ void
 init_vm() {
     reset_stack();
     vm.objects = nullptr;
+
+    vm.bytes_allocated = 0;
+    vm.next_gc         = 1024 * 1024;
+
+    vm.gray_count    = 0;
+    vm.gray_capacity = 0;
+    vm.gray_stack    = nullptr;
+
     init_table(&vm.globals);
     init_table(&vm.strings);
 
@@ -152,7 +160,7 @@ capture_upvalue(struct value* local) {
     struct object_upvalue* created_upvalue = new_upvalue(local);
     created_upvalue->next                  = upvalue;
 
-    if (prev_upvalue == NULL) {
+    if (prev_upvalue == nullptr) {
         vm.open_upvalues = created_upvalue;
     } else {
         prev_upvalue->next = created_upvalue;
@@ -162,7 +170,7 @@ capture_upvalue(struct value* local) {
 
 static void
 close_upvalues(struct value* last) {
-    while (vm.open_upvalues != NULL && vm.open_upvalues->location >= last) {
+    while (vm.open_upvalues != nullptr && vm.open_upvalues->location >= last) {
         struct object_upvalue* upvalue = vm.open_upvalues;
         upvalue->closed                = *upvalue->location;
         upvalue->location              = &upvalue->closed;
@@ -177,8 +185,8 @@ is_falsey(struct value value) {
 
 static void
 concatenate() {
-    struct object_string* b = AS_STRING(pop());
-    struct object_string* a = AS_STRING(pop());
+    struct object_string* b = AS_STRING(peek(0));
+    struct object_string* a = AS_STRING(peek(1));
 
     i32 length  = a->length + b->length;
     char* chars = ALLOCATE(char, length + 1);
@@ -187,6 +195,8 @@ concatenate() {
     chars[length] = '\0';
 
     struct object_string* result = take_string(chars, length);
+    pop();
+    pop();
     push(OBJECT_VAL(result));
 }
 

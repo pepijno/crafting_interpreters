@@ -23,7 +23,7 @@ free_table(struct table table[static 1]) {
 
 static struct entry*
 find_entry(struct entry* entries, i32 capacity, struct object_string* key) {
-    uint32_t index            = key->hash % capacity;
+    uint32_t index          = key->hash % capacity;
     struct entry* tombstone = nullptr;
     for (;;) {
         struct entry* entry = &entries[index];
@@ -47,9 +47,7 @@ find_entry(struct entry* entries, i32 capacity, struct object_string* key) {
 }
 
 bool
-table_get(
-    struct table* table, struct object_string* key, struct value* value
-) {
+table_get(struct table* table, struct object_string* key, struct value* value) {
     if (table->count == 0) {
         return false;
     }
@@ -79,8 +77,8 @@ adjust_capacity(struct table* table, int capacity) {
         }
 
         struct entry* dest = find_entry(entries, capacity, entry->key);
-        dest->key            = entry->key;
-        dest->value          = entry->value;
+        dest->key          = entry->key;
+        dest->value        = entry->value;
         table->count += 1;
     }
 
@@ -91,8 +89,7 @@ adjust_capacity(struct table* table, int capacity) {
 
 bool
 table_set(
-    struct table table[static 1], struct object_string* key,
-    struct value value
+    struct table table[static 1], struct object_string* key, struct value value
 ) {
     if (table->count + 1 > table->capacity * TABLE_MAX_LOAD) {
         int capacity = grow_capacity(table->capacity);
@@ -100,7 +97,7 @@ table_set(
     }
 
     struct entry* entry = find_entry(table->entries, table->capacity, key);
-    bool is_new_key       = entry->key == nullptr;
+    bool is_new_key     = entry->key == nullptr;
     if (is_new_key && IS_NIL(entry->value)) {
         table->count += 1;
     }
@@ -162,5 +159,24 @@ table_find_string(
         }
 
         index = (index + 1) % table->capacity;
+    }
+}
+
+void
+table_remove_white(struct table* table) {
+    for (i32 i = 0; i < table->capacity; i++) {
+        struct entry* entry = &table->entries[i];
+        if (entry->key != nullptr && !entry->key->object.is_marked) {
+            table_delete(table, entry->key);
+        }
+    }
+}
+
+void
+mark_table(struct table* table) {
+    for (int i = 0; i < table->capacity; i++) {
+        struct entry* entry = &table->entries[i];
+        mark_object((struct object*) entry->key);
+        mark_value(entry->value);
     }
 }

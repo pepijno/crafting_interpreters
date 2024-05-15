@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common.h"
+#include "value.h"
 
 #define ALLOCATE(type, count) \
     (type*) reallocate(nullptr, 0, sizeof(type) * (count))
@@ -16,4 +17,7 @@
     reallocate((pointer), sizeof(type) * (old_count), 0)
 
 void* reallocate(void* pointer, i32 old_size, i32 new_size);
+void mark_object(struct object* object);
+void mark_value(struct value value);
+void collect_garbage();
 void free_objects();
