@@ -14,18 +14,35 @@
 static struct object*
 allocate_object(size_t size, enum object_type type) {
     struct object* object = (struct object*) reallocate(nullptr, 0, size);
-    object->type            = type;
-    object->next            = vm.objects;
-    vm.objects              = object;
+    object->type          = type;
+    object->next          = vm.objects;
+    vm.objects            = object;
     return object;
+}
+
+struct object_closure*
+new_closure(struct object_function function[static 1]) {
+    struct object_upvalue** upvalues
+        = ALLOCATE(struct object_upvalue*, function->upvalue_count);
+    for (i32 i = 0; i < function->upvalue_count; i++) {
+        upvalues[i] = nullptr;
+    }
+
+    struct object_closure* closure
+        = ALLOCATE_OBJECT(struct object_closure, OBJECT_CLOSURE);
+    closure->function      = function;
+    closure->upvalues      = upvalues;
+    closure->upvalue_count = function->upvalue_count;
+    return closure;
 }
 
 struct object_function*
 new_function() {
     struct object_function* function
         = ALLOCATE_OBJECT(struct object_function, OBJECT_FUNCTION);
-    function->arity = 0;
-    function->name  = NULL;
+    function->arity         = 0;
+    function->upvalue_count = 0;
+    function->name          = nullptr;
     init_chunk(&function->chunk);
     return function;
 }
@@ -64,7 +81,7 @@ take_string(char* chars, i32 length) {
     u32 hash = hash_string(chars, length);
     struct object_string* interned
         = table_find_string(&vm.strings, chars, length, hash);
-    if (interned != NULL) {
+    if (interned != nullptr) {
         free_array(char, chars, length + 1);
         return interned;
     }
@@ -77,7 +94,7 @@ copy_string(char const* chars, i32 length) {
     u32 hash = hash_string(chars, length);
     struct object_string* interned
         = table_find_string(&vm.strings, chars, length, hash);
-    if (interned != NULL) {
+    if (interned != nullptr) {
         return interned;
     }
 
@@ -85,6 +102,16 @@ copy_string(char const* chars, i32 length) {
     memcpy(heapChars, chars, length);
     heapChars[length] = '\0';
     return allocate_string(heapChars, length, hash);
+}
+
+struct object_upvalue*
+new_upvalue(struct value slot[static 1]) {
+    struct object_upvalue* upvalue
+        = ALLOCATE_OBJECT(struct object_upvalue, OBJECT_UPVALUE);
+    upvalue->closed   = NIL_VAL;
+    upvalue->location = slot;
+    upvalue->next     = nullptr;
+    return upvalue;
 }
 
 static void
@@ -107,6 +134,12 @@ print_object(struct value value) {
             break;
         case OBJECT_NATIVE:
             printf("<native fn>");
+            break;
+        case OBJECT_CLOSURE:
+            print_function(AS_CLOSURE(value)->function);
+            break;
+        case OBJECT_UPVALUE:
+            printf("upvalue");
             break;
     }
 }

@@ -7,7 +7,7 @@
 #define STACK_MAX (FRAMES_MAX * UINT8_COUNT)
 
 struct call_frame {
-    struct object_function* function;
+    struct object_closure* closure;
     u8* ip;
     struct value* slots;
 };
@@ -19,6 +19,7 @@ struct vm {
     struct value* stack_top;
     struct table globals;
     struct table strings;
+    struct object_upvalue* open_upvalues;
     struct object* objects;
 };
 

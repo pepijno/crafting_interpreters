@@ -4,7 +4,6 @@
 #include "object.h"
 
 #include <stdio.h>
-#include <string.h>
 
 void
 init_value_array(struct value_array array[static 1]) {

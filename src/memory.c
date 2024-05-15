@@ -29,7 +29,7 @@ free_object(struct object object[static 1]) {
             break;
         }
         case OBJECT_FUNCTION: {
-            struct object_function* function = (struct object_function*)object;
+            struct object_function* function = (struct object_function*) object;
             free_chunk(&function->chunk);
             FREE(struct object_function, object);
             break;
@@ -38,6 +38,15 @@ free_object(struct object object[static 1]) {
             FREE(struct object_native, object);
             break;
         }
+        case OBJECT_CLOSURE: {
+            struct object_closure* closure = (struct object_closure*) object;
+            free_array(struct object_upvalue*, closure->upvalues, closure->upvalue_count);
+            FREE(struct object_closure, object);
+            break;
+        }
+        case OBJECT_UPVALUE:
+            FREE(struct object_upvalue, object);
+            break;
     }
 }
 

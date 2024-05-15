@@ -14,14 +14,16 @@
 
 struct vm vm;
 
-static struct value clock_native(i32 arg_count, struct value* args) {
-  return NUMBER_VAL((double)clock() / CLOCKS_PER_SEC);
+static struct value
+clock_native(i32 arg_count, struct value* args) {
+    return NUMBER_VAL((double) clock() / CLOCKS_PER_SEC);
 }
 
 static void
 reset_stack() {
-    vm.stack_top   = vm.stack;
-    vm.frame_count = 0;
+    vm.stack_top     = vm.stack;
+    vm.frame_count   = 0;
+    vm.open_upvalues = nullptr;
 }
 
 static void
@@ -34,10 +36,10 @@ runtime_error(char const* format, ...) {
 
     for (i32 i = vm.frame_count - 1; i >= 0; i--) {
         struct call_frame* frame         = &vm.frames[i];
-        struct object_function* function = frame->function;
-        size_t instruction = frame->ip - function->chunk.code - 1;
+        struct object_function* function = frame->closure->function;
+        size_t instruction               = frame->ip - function->chunk.code - 1;
         fprintf(stderr, "[line %d] in ", function->chunk.lines[instruction]);
-        if (function->name == NULL) {
+        if (function->name == nullptr) {
             fprintf(stderr, "script\n");
         } else {
             fprintf(stderr, "%s()\n", function->name->chars);
@@ -91,10 +93,11 @@ peek(i32 distance) {
 }
 
 static bool
-call(struct object_function* function, i32 arg_count) {
-    if (arg_count != function->arity) {
+call(struct object_closure* closure, i32 arg_count) {
+    if (arg_count != closure->function->arity) {
         runtime_error(
-            "Expected %d arguments but got %d.", function->arity, arg_count
+            "Expected %d arguments but got %d.", closure->function->arity,
+            arg_count
         );
         return false;
     }
@@ -106,9 +109,9 @@ call(struct object_function* function, i32 arg_count) {
 
     struct call_frame* frame = &vm.frames[vm.frame_count];
     vm.frame_count += 1;
-    frame->function = function;
-    frame->ip       = function->chunk.code;
-    frame->slots    = vm.stack_top - arg_count - 1;
+    frame->closure = closure;
+    frame->ip      = closure->function->chunk.code;
+    frame->slots   = vm.stack_top - arg_count - 1;
     return true;
 }
 
@@ -116,8 +119,6 @@ static bool
 call_value(struct value callee, i32 arg_count) {
     if (IS_OBJECT(callee)) {
         switch (OBJECT_TYPE(callee)) {
-            case OBJECT_FUNCTION:
-                return call(AS_FUNCTION(callee), arg_count);
             case OBJECT_NATIVE: {
                 native_function native = AS_NATIVE(callee);
                 struct value result
@@ -126,12 +127,47 @@ call_value(struct value callee, i32 arg_count) {
                 push(result);
                 return true;
             }
+            case OBJECT_CLOSURE:
+                return call(AS_CLOSURE(callee), arg_count);
             default:
                 break; // Non-callable object type.
         }
     }
     runtime_error("Can only call functions and classes.");
     return false;
+}
+
+static struct object_upvalue*
+capture_upvalue(struct value* local) {
+    struct object_upvalue* prev_upvalue = nullptr;
+    struct object_upvalue* upvalue      = vm.open_upvalues;
+    while (upvalue != nullptr && upvalue->location > local) {
+        prev_upvalue = upvalue;
+        upvalue      = upvalue->next;
+    }
+
+    if (upvalue != nullptr && upvalue->location == local) {
+        return upvalue;
+    }
+    struct object_upvalue* created_upvalue = new_upvalue(local);
+    created_upvalue->next                  = upvalue;
+
+    if (prev_upvalue == NULL) {
+        vm.open_upvalues = created_upvalue;
+    } else {
+        prev_upvalue->next = created_upvalue;
+    }
+    return created_upvalue;
+}
+
+static void
+close_upvalues(struct value* last) {
+    while (vm.open_upvalues != NULL && vm.open_upvalues->location >= last) {
+        struct object_upvalue* upvalue = vm.open_upvalues;
+        upvalue->closed                = *upvalue->location;
+        upvalue->location              = &upvalue->closed;
+        vm.open_upvalues               = upvalue->next;
+    }
 }
 
 static bool
@@ -161,8 +197,9 @@ run() {
 #define READ_BYTE() (*frame->ip++)
 #define READ_SHORT() \
     (frame->ip += 2, (uint16_t) ((frame->ip[-2] << 8) | frame->ip[-1]))
-#define READ_CONSTANT() (frame->function->chunk.constants.values[READ_BYTE()])
-#define READ_STRING()   AS_STRING(READ_CONSTANT())
+#define READ_CONSTANT() \
+    (frame->closure->function->chunk.constants.values[READ_BYTE()])
+#define READ_STRING() AS_STRING(READ_CONSTANT())
 #define BINARY_OP(valueType, op)                          \
     do {                                                  \
         if (!IS_NUMBER(peek(0)) || !IS_NUMBER(peek(1))) { \
@@ -184,8 +221,8 @@ run() {
         }
         printf("\n");
         disassemble_instruction(
-            &frame->function->chunk,
-            (i32) (frame->ip - frame->function->chunk.code)
+            &frame->closure->function->chunk,
+            (i32) (frame->ip - frame->closure->function->chunk.code)
         );
 #endif
         u8 instruction;
@@ -242,6 +279,16 @@ run() {
                 }
                 break;
             }
+            case OP_GET_UPVALUE: {
+                u8 slot = READ_BYTE();
+                push(*frame->closure->upvalues[slot]->location);
+                break;
+            }
+            case OP_SET_UPVALUE: {
+                u8 slot                                   = READ_BYTE();
+                *frame->closure->upvalues[slot]->location = peek(0);
+                break;
+            }
             case OP_EQUAL: {
                 struct value b = pop();
                 struct value a = pop();
@@ -294,7 +341,7 @@ run() {
                 break;
             case OP_JUMP: {
                 uint16_t offset = READ_SHORT();
-                frame->function += offset;
+                frame->ip += offset;
                 break;
             }
             case OP_JUMP_IF_FALSE: {
@@ -317,8 +364,30 @@ run() {
                 frame = &vm.frames[vm.frame_count - 1];
                 break;
             }
+            case OP_CLOSURE: {
+                struct object_function* function = AS_FUNCTION(READ_CONSTANT());
+                struct object_closure* closure   = new_closure(function);
+                push(OBJECT_VAL(closure));
+                for (i32 i = 0; i < closure->upvalue_count; i++) {
+                    u8 isLocal = READ_BYTE();
+                    u8 index   = READ_BYTE();
+                    if (isLocal) {
+                        closure->upvalues[i]
+                            = capture_upvalue(frame->slots + index);
+                    } else {
+                        closure->upvalues[i] = frame->closure->upvalues[index];
+                    }
+                }
+                break;
+            }
+            case OP_CLOSE_UPVALUE: {
+                close_upvalues(vm.stack_top - 1);
+                pop();
+                break;
+            }
             case OP_RETURN: {
                 struct value result = pop();
+                close_upvalues(frame->slots);
                 vm.frame_count -= 1;
                 if (vm.frame_count == 0) {
                     pop();
@@ -348,7 +417,10 @@ interpret(char const* source) {
     }
 
     push(OBJECT_VAL(function));
-    call(function, 0);
+    struct object_closure* closure = new_closure(function);
+    pop();
+    push(OBJECT_VAL(closure));
+    call(closure, 0);
 
     return run();
 }

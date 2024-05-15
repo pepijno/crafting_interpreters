@@ -11,14 +11,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-struct parser_t {
+struct parser {
     struct token current;
     struct token previous;
     bool had_error;
     bool panic_mode;
 };
 
-enum precedence_e {
+enum precedence {
     PREC_NONE,
     PREC_ASSIGNMENT, // =
     PREC_OR,         // or
@@ -32,31 +32,38 @@ enum precedence_e {
     PREC_PRIMARY
 };
 
-typedef void (*parse_fn_t)(bool can_assign);
+typedef void (*parse_function)(bool can_assign);
 
-struct parse_rule_t {
-    parse_fn_t prefix;
-    parse_fn_t infix;
-    enum precedence_e precedence;
+struct parse_rule {
+    parse_function prefix;
+    parse_function infix;
+    enum precedence precedence;
 };
 
-struct local_t {
+struct local {
     struct token name;
     i32 depth;
+    bool is_captured;
 };
 
-struct compiler_t {
-    struct compiler_t* enclosing;
+struct upvalue {
+    u8 index;
+    bool is_local;
+};
+
+struct compiler {
+    struct compiler* enclosing;
     struct object_function* function;
     enum function_type type;
 
-    struct local_t locals[UINT8_COUNT];
+    struct local locals[UINT8_COUNT];
     i32 local_count;
+    struct upvalue upvalues[UINT8_COUNT];
     i32 scope_depth;
 };
 
-struct parser_t parser;
-struct compiler_t* current = nullptr;
+struct parser parser;
+struct compiler* current = nullptr;
 
 static struct chunk*
 current_chunk() {
@@ -200,7 +207,7 @@ patch_jump(i32 offset) {
 }
 
 static void
-init_compiler(struct compiler_t compiler[static 1], enum function_type type) {
+init_compiler(struct compiler compiler[static 1], enum function_type type) {
     compiler->enclosing   = current;
     compiler->function    = nullptr;
     compiler->type        = type;
@@ -213,8 +220,9 @@ init_compiler(struct compiler_t compiler[static 1], enum function_type type) {
             = copy_string(parser.previous.start, parser.previous.length);
     }
 
-    struct local_t* local = &current->locals[current->local_count];
+    struct local* local = &current->locals[current->local_count];
     current->local_count += 1;
+    local->is_captured = false;
     local->name.start  = "";
     local->name.length = 0;
 }
@@ -247,7 +255,11 @@ end_scope() {
     while (current->local_count > 0
            && current->locals[current->local_count - 1].depth
                   > current->scope_depth) {
-        emit_byte(OP_POP);
+        if (current->locals[current->local_count - 1].is_captured) {
+            emit_byte(OP_CLOSE_UPVALUE);
+        } else {
+            emit_byte(OP_POP);
+        }
         current->local_count--;
     }
 }
@@ -255,8 +267,8 @@ end_scope() {
 static void expression();
 static void statement();
 static void declaration();
-static struct parse_rule_t* get_rule(enum token_type type);
-static void parse_precedence(enum precedence_e precedence);
+static struct parse_rule* get_rule(enum token_type type);
+static void parse_precedence(enum precedence precedence);
 
 static void
 and_(bool can_assign) {
@@ -283,8 +295,8 @@ or_(bool can_assign) {
 static void
 binary(bool can_assign) {
     enum token_type operatorType = parser.previous.type;
-    struct parse_rule_t* rule      = get_rule(operatorType);
-    parse_precedence((enum precedence_e)(rule->precedence + 1));
+    struct parse_rule* rule      = get_rule(operatorType);
+    parse_precedence((enum precedence)(rule->precedence + 1));
 
     switch (operatorType) {
         case TOKEN_BANG_EQUAL:
@@ -394,17 +406,58 @@ identifiers_equal(struct token a[static 1], struct token b[static 1]) {
 }
 
 static i32
-resolve_local(
-    struct compiler_t compiler[static 1], struct token name[static 1]
-) {
+resolve_local(struct compiler compiler[static 1], struct token name[static 1]) {
     for (int i = compiler->local_count - 1; i >= 0; i--) {
-        struct local_t* local = &compiler->locals[i];
+        struct local* local = &compiler->locals[i];
         if (identifiers_equal(name, &local->name)) {
             if (local->depth == -1) {
                 error("Can't read local variable in its own initializer.");
             }
             return i;
         }
+    }
+
+    return -1;
+}
+
+static i32
+add_upvalue(struct compiler* compiler, u8 index, bool is_local) {
+    i32 upvalue_count = compiler->function->upvalue_count;
+
+    for (i32 i = 0; i < upvalue_count; i++) {
+        struct upvalue* upvalue = &compiler->upvalues[i];
+        if (upvalue->index == index && upvalue->is_local == is_local) {
+            return i;
+        }
+    }
+
+    if (upvalue_count == UINT8_COUNT) {
+        error("Too many closure variables in function.");
+        return 0;
+    }
+
+    compiler->upvalues[upvalue_count].is_local = is_local;
+    compiler->upvalues[upvalue_count].index    = index;
+    return compiler->function->upvalue_count++;
+}
+
+static i32
+resolve_upvalue(
+    struct compiler compiler[static 1], struct token name[static 1]
+) {
+    if (compiler->enclosing == nullptr) {
+        return -1;
+    }
+
+    i32 local = resolve_local(compiler->enclosing, name);
+    if (local != -1) {
+        compiler->enclosing->locals[local].is_captured = true;
+        return add_upvalue(compiler, (u8) local, true);
+    }
+
+    i32 upvalue = resolve_upvalue(compiler->enclosing, name);
+    if (upvalue != -1) {
+        return add_upvalue(compiler, (u8) upvalue, false);
     }
 
     return -1;
@@ -417,10 +470,11 @@ add_local(struct token name) {
         return;
     }
 
-    struct local_t* local = &current->locals[current->local_count];
+    struct local* local = &current->locals[current->local_count];
     current->local_count += 1;
-    local->name  = name;
-    local->depth = -1;
+    local->name        = name;
+    local->depth       = -1;
+    local->is_captured = false;
 }
 
 static void
@@ -430,7 +484,7 @@ declare_variable() {
     }
     struct token* name = &parser.previous;
     for (i32 i = current->local_count - 1; i >= 0; i--) {
-        struct local_t* local = &current->locals[i];
+        struct local* local = &current->locals[i];
         if (local->depth != -1 && local->depth < current->scope_depth) {
             break;
         }
@@ -449,6 +503,9 @@ named_variable(struct token name, bool can_assign) {
     if (arg != -1) {
         get_op = OP_GET_LOCAL;
         set_op = OP_SET_LOCAL;
+    } else if ((arg = resolve_upvalue(current, &name)) != -1) {
+        get_op = OP_GET_UPVALUE;
+        set_op = OP_SET_UPVALUE;
     } else {
         arg    = identifier_constant(&name);
         get_op = OP_GET_GLOBAL;
@@ -487,7 +544,7 @@ unary(bool can_assign) {
     }
 }
 
-struct parse_rule_t rules[] = {
+struct parse_rule rules[] = {
     [TOKEN_LEFT_PAREN]    = {grouping,    call,       PREC_CALL},
     [TOKEN_RIGHT_PAREN]   = { nullptr, nullptr,       PREC_NONE},
     [TOKEN_LEFT_BRACE]    = { nullptr, nullptr,       PREC_NONE},
@@ -531,9 +588,9 @@ struct parse_rule_t rules[] = {
 };
 
 static void
-parse_precedence(enum precedence_e precedence) {
+parse_precedence(enum precedence precedence) {
     advance();
-    parse_fn_t prefix_rule = get_rule(parser.previous.type)->prefix;
+    parse_function prefix_rule = get_rule(parser.previous.type)->prefix;
     if (prefix_rule == nullptr) {
         error("Expect expression.");
         return;
@@ -544,7 +601,7 @@ parse_precedence(enum precedence_e precedence) {
 
     while (precedence <= get_rule(parser.current.type)->precedence) {
         advance();
-        parse_fn_t infix_rule = get_rule(parser.previous.type)->infix;
+        parse_function infix_rule = get_rule(parser.previous.type)->infix;
         infix_rule(can_assign);
     }
 
@@ -582,7 +639,7 @@ define_variable(u8 global) {
     emit_bytes(OP_DEFINE_GLOBAL, global);
 }
 
-static struct parse_rule_t*
+static struct parse_rule*
 get_rule(enum token_type type) {
     return &rules[type];
 }
@@ -603,7 +660,7 @@ block() {
 
 static void
 function(enum function_type type) {
-    struct compiler_t compiler;
+    struct compiler compiler;
     init_compiler(&compiler, type);
     begin_scope();
 
@@ -623,7 +680,12 @@ function(enum function_type type) {
     block();
 
     struct object_function* function = end_compiler();
-    emit_bytes(OP_CONSTANT, make_constant(OBJECT_VAL(function)));
+    emit_bytes(OP_CLOSURE, make_constant(OBJECT_VAL(function)));
+
+    for (i32 i = 0; i < function->upvalue_count; i++) {
+        emit_byte(compiler.upvalues[i].is_local ? 1 : 0);
+        emit_byte(compiler.upvalues[i].index);
+    }
 }
 
 static void
@@ -825,7 +887,7 @@ statement() {
 struct object_function*
 compile(char const* source) {
     init_scanner(source);
-    struct compiler_t compiler;
+    struct compiler compiler;
     init_compiler(&compiler, TYPE_SCRIPT);
 
     parser.had_error  = false;

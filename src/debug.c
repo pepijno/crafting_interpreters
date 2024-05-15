@@ -1,5 +1,7 @@
 #include "debug.h"
 
+#include "object.h"
+
 #include <stdio.h>
 
 void
@@ -25,9 +27,7 @@ byte_instruction(char const* name, struct chunk chunk[static 1], i32 offset) {
 }
 
 static i32
-jump_instruction(
-    char const* name, i32 sign, struct chunk* chunk, i32 offset
-) {
+jump_instruction(char const* name, i32 sign, struct chunk* chunk, i32 offset) {
     uint16_t jump = (uint16_t) (chunk->code[offset + 1] << 8);
     jump |= chunk->code[offset + 2];
     printf("%-16s %4d -> %d\n", name, offset, offset + 3 + sign * jump);
@@ -76,6 +76,10 @@ disassemble_instruction(struct chunk chunk[static 1], i32 offset) {
             return constant_instruction("OP_GET_GLOBAL", chunk, offset);
         case OP_SET_GLOBAL:
             return constant_instruction("OP_SET_GLOBAL", chunk, offset);
+        case OP_GET_UPVALUE:
+            return byte_instruction("OP_GET_UPVALUE", chunk, offset);
+        case OP_SET_UPVALUE:
+            return byte_instruction("OP_SET_UPVALUE", chunk, offset);
         case OP_EQUAL:
             return simple_instruction("OP_EQUAL", offset);
         case OP_GREATER:
@@ -104,6 +108,27 @@ disassemble_instruction(struct chunk chunk[static 1], i32 offset) {
             return jump_instruction("OP_LOOP", -1, chunk, offset);
         case OP_CALL:
             return byte_instruction("OP_CALL", chunk, offset);
+        case OP_CLOSURE: {
+            offset += 1;
+            u8 constant = chunk->code[offset];
+            offset += 1;
+            printf("%-16s %4d ", "OP_CLOSURE", constant);
+            print_value(chunk->constants.values[constant]);
+            printf("\n");
+            struct object_function* function
+                = AS_FUNCTION(chunk->constants.values[constant]);
+            for (i32 j = 0; j < function->upvalue_count; j++) {
+                i32 isLocal = chunk->code[offset++];
+                i32 index   = chunk->code[offset++];
+                printf(
+                    "%04d      |                     %s %d\n", offset - 2,
+                    isLocal ? "local" : "upvalue", index
+                );
+            }
+            return offset;
+        }
+        case OP_CLOSE_UPVALUE:
+            return simple_instruction("OP_CLOSE_UPVALUE", offset);
         case OP_RETURN:
             return simple_instruction("OP_RETURN", offset);
         default:
