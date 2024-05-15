@@ -62,7 +62,7 @@ table_get(struct table* table, struct object_string* key, struct value* value) {
 }
 
 static void
-adjust_capacity(struct table* table, int capacity) {
+adjust_capacity(struct table* table, i32 capacity) {
     struct entry* entries = ALLOCATE(struct entry, capacity);
     for (i32 i = 0; i < capacity; i++) {
         entries[i].key   = nullptr;
@@ -126,7 +126,7 @@ table_delete(struct table* table, struct object_string* key) {
 }
 
 void
-tableAddAll(struct table* from, struct table* to) {
+table_add_all(struct table* from, struct table* to) {
     for (i32 i = 0; i < from->capacity; i++) {
         struct entry* entry = &from->entries[i];
         if (entry->key != nullptr) {

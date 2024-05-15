@@ -147,10 +147,16 @@ disassemble_instruction(struct chunk chunk[static 1], i32 offset) {
             return simple_instruction("OP_RETURN", offset);
         case OP_CLASS:
             return constant_instruction("OP_CLASS", chunk, offset);
+        case OP_INHERIT:
+            return simple_instruction("OP_INHERIT", offset);
+        case OP_GET_SUPER:
+            return constant_instruction("OP_GET_SUPER", chunk, offset);
         case OP_METHOD:
             return constant_instruction("OP_METHOD", chunk, offset);
         case OP_INVOKE:
             return invoke_instruction("OP_INVOKE", chunk, offset);
+        case OP_SUPER_INVOKE:
+            return invoke_instruction("OP_SUPER_INVOKE", chunk, offset);
         default:
             printf("Unknown opcode: %d\n", instruction);
             return offset + 1;

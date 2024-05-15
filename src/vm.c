@@ -147,12 +147,13 @@ call_value(struct value callee, i32 arg_count) {
                 struct value initializer;
                 if (table_get(&class->methods, vm.init_string, &initializer)) {
                     return call(AS_CLOSURE(initializer), arg_count);
-                } else {
+                } else if (arg_count != 0) {
                     runtime_error(
                         "Expected 0 arguments but got %d.", arg_count
                     );
                     return false;
                 }
+                return true;
             }
             case OBJECT_BOUND_METHOD: {
                 struct object_bound_method* bound = AS_BOUND_METHOD(callee);
@@ -169,7 +170,7 @@ call_value(struct value callee, i32 arg_count) {
 
 static bool
 invoke_from_class(
-    struct object_class* class, struct object_string* name, int arg_count
+    struct object_class* class, struct object_string* name, i32 arg_count
 ) {
     struct value method;
     if (!table_get(&class->methods, name, &method)) {
@@ -523,6 +524,28 @@ run() {
                 push(OBJECT_VAL(new_class(READ_STRING())));
                 break;
             }
+            case OP_INHERIT: {
+                struct value superclass = peek(1);
+                if (!IS_CLASS(superclass)) {
+                    runtime_error("Superclass must be a class.");
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                struct object_class* subclass = AS_CLASS(peek(0));
+                table_add_all(
+                    &AS_CLASS(superclass)->methods, &subclass->methods
+                );
+                pop();
+                break;
+            }
+            case OP_GET_SUPER: {
+                struct object_string* name      = READ_STRING();
+                struct object_class* superclass = AS_CLASS(pop());
+
+                if (!bind_method(superclass, name)) {
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                break;
+            }
             case OP_METHOD:
                 define_method(READ_STRING());
                 break;
@@ -530,6 +553,16 @@ run() {
                 struct object_string* method = READ_STRING();
                 i32 arg_count                = READ_BYTE();
                 if (!invoke(method, arg_count)) {
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                frame = &vm.frames[vm.frame_count - 1];
+                break;
+            }
+            case OP_SUPER_INVOKE: {
+                struct object_string* method    = READ_STRING();
+                i32 arg_count                   = READ_BYTE();
+                struct object_class* superclass = AS_CLASS(pop());
+                if (!invoke_from_class(superclass, method, arg_count)) {
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 frame = &vm.frames[vm.frame_count - 1];
