@@ -26,6 +26,15 @@ allocate_object(size_t size, enum object_type type) {
     return object;
 }
 
+struct object_class*
+new_class(struct object_string name[static 1]) {
+    struct object_class* class = ALLOCATE_OBJECT(
+        struct object_class, OBJECT_CLASS
+    );
+    class->name = name;
+    return class;
+}
+
 struct object_closure*
 new_closure(struct object_function function[static 1]) {
     struct object_upvalue** upvalues
@@ -51,6 +60,15 @@ new_function() {
     function->name          = nullptr;
     init_chunk(&function->chunk);
     return function;
+}
+
+struct object_instance*
+new_instance(struct object_class class[static 1]) {
+    struct object_instance* instance
+        = ALLOCATE_OBJECT(struct object_instance, OBJECT_INSTANCE);
+    instance->class = class;
+    init_table(&instance->fields);
+    return instance;
 }
 
 struct object_native*
@@ -123,7 +141,7 @@ new_upvalue(struct value slot[static 1]) {
 }
 
 static void
-print_function(struct object_function* function) {
+print_function(struct object_function function[static 1]) {
     if (function->name == nullptr) {
         printf("<script>");
     } else {
@@ -148,6 +166,12 @@ print_object(struct value value) {
             break;
         case OBJECT_UPVALUE:
             printf("upvalue");
+            break;
+        case OBJECT_CLASS:
+            printf("%s", AS_CLASS(value)->name->chars);
+            break;
+        case OBJECT_INSTANCE:
+            printf("%s instance", AS_INSTANCE(value)->class->name->chars);
             break;
     }
 }

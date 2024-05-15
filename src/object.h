@@ -2,6 +2,7 @@
 
 #include "chunk.h"
 #include "common.h"
+#include "table.h"
 #include "value.h"
 
 #define OBJECT_TYPE(value) (AS_OBJECT(value)->type)
@@ -10,12 +11,16 @@
 #define IS_FUNCTION(value) is_object_type(value, OBJECT_FUNCTION)
 #define IS_NATIVE(value)   is_object_type(value, OBJECT_NATIVE)
 #define IS_CLOSURE(value)  is_object_type(value, OBJECT_CLOSURE)
+#define IS_CLASS(value)    is_object_type(value, OBJECT_CLASS)
+#define IS_INSTANCE(value) is_object_type(value, OBJECT_INSTANCE)
 
 #define AS_STRING(value)   ((struct object_string*) AS_OBJECT(value))
 #define AS_CSTRING(value)  (((struct object_string*) AS_OBJECT(value))->chars)
 #define AS_FUNCTION(value) ((struct object_function*) AS_OBJECT(value))
 #define AS_NATIVE(value)   (((struct object_native*) AS_OBJECT(value))->function)
 #define AS_CLOSURE(value)  ((struct object_closure*) AS_OBJECT(value))
+#define AS_CLASS(value)    ((struct object_class*) AS_OBJECT(value))
+#define AS_INSTANCE(value) ((struct object_instance*) AS_OBJECT(value))
 
 enum object_type {
     OBJECT_STRING,
@@ -23,6 +28,8 @@ enum object_type {
     OBJECT_NATIVE,
     OBJECT_CLOSURE,
     OBJECT_UPVALUE,
+    OBJECT_CLASS,
+    OBJECT_INSTANCE,
 };
 
 enum function_type {
@@ -72,8 +79,21 @@ struct object_closure {
     i32 upvalue_count;
 };
 
+struct object_class {
+    struct object object;
+    struct object_string* name;
+};
+
+struct object_instance {
+    struct object object;
+    struct object_class* class;
+    struct table fields;
+};
+
+struct object_class* new_class(struct object_string name[static 1]);
 struct object_closure* new_closure(struct object_function function[static 1]);
 struct object_function* new_function();
+struct object_instance* new_instance(struct object_class class[static 1]);
 struct object_native* new_native(native_function function);
 struct object_string* take_string(char* chars, i32 length);
 struct object_string* copy_string(char const* chars, i32 length);

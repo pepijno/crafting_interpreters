@@ -2,6 +2,7 @@
 
 #include "compiler.h"
 #include "object.h"
+#include "table.h"
 #include "vm.h"
 
 #ifdef DEBUG_LOG_GC
@@ -39,7 +40,7 @@ reallocate(void* pointer, i32 old_size, i32 new_size) {
 }
 
 void
-mark_object(struct object* object) {
+mark_object(struct object object[static 1]) {
     if (object == nullptr) {
         return;
     }
@@ -76,7 +77,7 @@ mark_value(struct value value) {
 }
 
 static void
-mark_array(struct value_array* array) {
+mark_array(struct value_array array[static 1]) {
     for (int i = 0; i < array->count; i++) {
         mark_value(array->values[i]);
     }
@@ -116,6 +117,16 @@ free_object(struct object object[static 1]) {
         case OBJECT_UPVALUE:
             FREE(struct object_upvalue, object);
             break;
+        case OBJECT_CLASS: {
+            FREE(struct object_class, object);
+            break;
+        }
+        case OBJECT_INSTANCE: {
+            struct object_instance* instance = (struct object_instance*) object;
+            free_table(&instance->fields);
+            FREE(struct object_instance, object);
+            break;
+        }
     }
 }
 
@@ -139,7 +150,7 @@ mark_roots() {
 }
 
 static void
-blacken_object(struct object* object) {
+blacken_object(struct object object[static 1]) {
 #ifdef DEBUG_LOG_GC
     printf("%p blacken ", (void*) object);
     print_value(OBJECT_VAL(object));
@@ -163,6 +174,17 @@ blacken_object(struct object* object) {
         case OBJECT_UPVALUE:
             mark_value(((struct object_upvalue*) object)->closed);
             break;
+        case OBJECT_CLASS: {
+            struct object_class* class = (struct object_class*) object;
+            mark_object((struct object*) class->name);
+            break;
+        }
+        case OBJECT_INSTANCE: {
+            struct object_instance* instance = (struct object_instance*) object;
+            mark_object((struct object*) instance->class);
+            mark_table(&instance->fields);
+            break;
+        }
         case OBJECT_NATIVE:
         case OBJECT_STRING:
             break;

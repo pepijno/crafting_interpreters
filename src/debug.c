@@ -80,6 +80,10 @@ disassemble_instruction(struct chunk chunk[static 1], i32 offset) {
             return byte_instruction("OP_GET_UPVALUE", chunk, offset);
         case OP_SET_UPVALUE:
             return byte_instruction("OP_SET_UPVALUE", chunk, offset);
+        case OP_GET_PROPERTY:
+            return constant_instruction("OP_GET_PROPERTY", chunk, offset);
+        case OP_SET_PROPERTY:
+            return constant_instruction("OP_SET_PROPERTY", chunk, offset);
         case OP_EQUAL:
             return simple_instruction("OP_EQUAL", offset);
         case OP_GREATER:
@@ -131,6 +135,8 @@ disassemble_instruction(struct chunk chunk[static 1], i32 offset) {
             return simple_instruction("OP_CLOSE_UPVALUE", offset);
         case OP_RETURN:
             return simple_instruction("OP_RETURN", offset);
+        case OP_CLASS:
+            return constant_instruction("OP_CLASS", chunk, offset);
         default:
             printf("Unknown opcode: %d\n", instruction);
             return offset + 1;

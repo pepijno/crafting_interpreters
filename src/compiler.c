@@ -274,6 +274,7 @@ static void parse_precedence(enum precedence precedence);
 
 static void
 and_(bool can_assign) {
+    (void) can_assign;
     i32 end_jump = emit_jump(OP_JUMP_IF_FALSE);
 
     emit_byte(OP_POP);
@@ -284,6 +285,7 @@ and_(bool can_assign) {
 
 static void
 or_(bool can_assign) {
+    (void) can_assign;
     i32 else_jump = emit_jump(OP_JUMP_IF_FALSE);
     i32 end_jump  = emit_jump(OP_JUMP);
 
@@ -296,6 +298,7 @@ or_(bool can_assign) {
 
 static void
 binary(bool can_assign) {
+    (void) can_assign;
     enum token_type operatorType = parser.previous.type;
     struct parse_rule* rule      = get_rule(operatorType);
     parse_precedence((enum precedence)(rule->precedence + 1));
@@ -352,14 +355,34 @@ argument_list() {
     return arg_count;
 }
 
+static u8
+identifier_constant(struct token name[static 1]) {
+    return make_constant(OBJECT_VAL(copy_string(name->start, name->length)));
+}
+
 static void
-call(bool canAssign) {
+call(bool can_assign) {
+    (void) can_assign;
     u8 argCount = argument_list();
     emit_bytes(OP_CALL, argCount);
 }
 
 static void
+dot(bool can_assign) {
+    consume(TOKEN_IDENTIFIER, "Expect property name after '.'.");
+    u8 name = identifier_constant(&parser.previous);
+
+    if (can_assign && match(TOKEN_EQUAL)) {
+        expression();
+        emit_bytes(OP_SET_PROPERTY, name);
+    } else {
+        emit_bytes(OP_GET_PROPERTY, name);
+    }
+}
+
+static void
 literal(bool can_assign) {
+    (void) can_assign;
     switch (parser.previous.type) {
         case TOKEN_FALSE:
             emit_byte(OP_FALSE);
@@ -377,26 +400,24 @@ literal(bool can_assign) {
 
 static void
 grouping(bool can_assign) {
+    (void) can_assign;
     expression();
     consume(TOKEN_RIGHT_PAREN, "Expect ')' after expression.");
 }
 
 static void
 number(bool can_assign) {
+    (void) can_assign;
     double value = strtod(parser.previous.start, nullptr);
     emit_constant(NUMBER_VAL(value));
 }
 
 static void
 string(bool can_assign) {
+    (void) can_assign;
     emit_constant(OBJECT_VAL(
         copy_string(parser.previous.start + 1, parser.previous.length - 2)
     ));
-}
-
-static u8
-identifier_constant(struct token name[static 1]) {
-    return make_constant(OBJECT_VAL(copy_string(name->start, name->length)));
 }
 
 static bool
@@ -528,6 +549,7 @@ variable(bool can_assign) {
 
 static void
 unary(bool can_assign) {
+    (void) can_assign;
     enum token_type operatorType = parser.previous.type;
 
     // Compile the operand.
@@ -552,7 +574,7 @@ struct parse_rule rules[] = {
     [TOKEN_LEFT_BRACE]    = { nullptr, nullptr,       PREC_NONE},
     [TOKEN_RIGHT_BRACE]   = { nullptr, nullptr,       PREC_NONE},
     [TOKEN_COMMA]         = { nullptr, nullptr,       PREC_NONE},
-    [TOKEN_DOT]           = { nullptr, nullptr,       PREC_NONE},
+    [TOKEN_DOT]           = { nullptr,     dot,       PREC_CALL},
     [TOKEN_MINUS]         = {   unary,  binary,       PREC_TERM},
     [TOKEN_PLUS]          = { nullptr,  binary,       PREC_TERM},
     [TOKEN_SEMICOLON]     = { nullptr, nullptr,       PREC_NONE},
@@ -688,6 +710,19 @@ function(enum function_type type) {
         emit_byte(compiler.upvalues[i].is_local ? 1 : 0);
         emit_byte(compiler.upvalues[i].index);
     }
+}
+
+static void
+class_declaration() {
+    consume(TOKEN_IDENTIFIER, "Expect class name.");
+    uint8_t nameConstant = identifier_constant(&parser.previous);
+    declare_variable();
+
+    emit_bytes(OP_CLASS, nameConstant);
+    define_variable(nameConstant);
+
+    consume(TOKEN_LEFT_BRACE, "Expect '{' before class body.");
+    consume(TOKEN_RIGHT_BRACE, "Expect '}' after class body.");
 }
 
 static void
@@ -852,7 +887,9 @@ synchronize() {
 
 static void
 declaration() {
-    if (match(TOKEN_FUN)) {
+    if (match(TOKEN_CLASS)) {
+        class_declaration();
+    } else if (match(TOKEN_FUN)) {
         fun_declaration();
     } else if (match(TOKEN_VAR)) {
         var_declaration();
