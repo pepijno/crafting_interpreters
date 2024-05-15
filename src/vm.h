@@ -19,6 +19,7 @@ struct vm {
     struct value* stack_top;
     struct table globals;
     struct table strings;
+    struct object_string* init_string;
     struct object_upvalue* open_upvalues;
 
     uint64_t bytes_allocated;

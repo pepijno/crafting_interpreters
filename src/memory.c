@@ -78,7 +78,7 @@ mark_value(struct value value) {
 
 static void
 mark_array(struct value_array array[static 1]) {
-    for (int i = 0; i < array->count; i++) {
+    for (i32 i = 0; i < array->count; i++) {
         mark_value(array->values[i]);
     }
 }
@@ -118,6 +118,8 @@ free_object(struct object object[static 1]) {
             FREE(struct object_upvalue, object);
             break;
         case OBJECT_CLASS: {
+            struct object_class* class = (struct object_class*) object;
+            free_table(&class->methods);
             FREE(struct object_class, object);
             break;
         }
@@ -125,6 +127,10 @@ free_object(struct object object[static 1]) {
             struct object_instance* instance = (struct object_instance*) object;
             free_table(&instance->fields);
             FREE(struct object_instance, object);
+            break;
+        }
+        case OBJECT_BOUND_METHOD: {
+            FREE(struct object_bound_method, object);
             break;
         }
     }
@@ -136,7 +142,7 @@ mark_roots() {
         mark_value(*slot);
     }
 
-    for (int i = 0; i < vm.frame_count; i++) {
+    for (i32 i = 0; i < vm.frame_count; i++) {
         mark_object((struct object*) vm.frames[i].closure);
     }
 
@@ -147,6 +153,7 @@ mark_roots() {
 
     mark_table(&vm.globals);
     mark_compiler_roots();
+    mark_object((struct object*) vm.init_string);
 }
 
 static void
@@ -160,7 +167,7 @@ blacken_object(struct object object[static 1]) {
         case OBJECT_CLOSURE: {
             struct object_closure* closure = (struct object_closure*) object;
             mark_object((struct object*) closure->function);
-            for (int i = 0; i < closure->upvalue_count; i++) {
+            for (i32 i = 0; i < closure->upvalue_count; i++) {
                 mark_object((struct object*) closure->upvalues[i]);
             }
             break;
@@ -177,12 +184,20 @@ blacken_object(struct object object[static 1]) {
         case OBJECT_CLASS: {
             struct object_class* class = (struct object_class*) object;
             mark_object((struct object*) class->name);
+            mark_table(&class->methods);
             break;
         }
         case OBJECT_INSTANCE: {
             struct object_instance* instance = (struct object_instance*) object;
             mark_object((struct object*) instance->class);
             mark_table(&instance->fields);
+            break;
+        }
+        case OBJECT_BOUND_METHOD: {
+            struct object_bound_method* bound_method
+                = (struct object_bound_method*) object;
+            mark_value(bound_method->receiver);
+            mark_object((struct object*) bound_method->method);
             break;
         }
         case OBJECT_NATIVE:

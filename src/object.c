@@ -2,6 +2,7 @@
 
 #include "memory.h"
 #include "object.h"
+#include "table.h"
 #include "value.h"
 #include "vm.h"
 
@@ -26,12 +27,24 @@ allocate_object(size_t size, enum object_type type) {
     return object;
 }
 
+struct object_bound_method*
+new_bound_method(
+    struct value receiver, struct object_closure method[static 1]
+) {
+    struct object_bound_method* bound_method
+        = ALLOCATE_OBJECT(struct object_bound_method, OBJECT_BOUND_METHOD);
+    bound_method->receiver = receiver;
+    bound_method->method   = method;
+    return bound_method;
+}
+
 struct object_class*
 new_class(struct object_string name[static 1]) {
     struct object_class* class = ALLOCATE_OBJECT(
         struct object_class, OBJECT_CLASS
     );
     class->name = name;
+    init_table(&class->methods);
     return class;
 }
 
@@ -95,7 +108,7 @@ allocate_string(char* chars, i32 length, i32 hash) {
 static u32
 hash_string(char const* key, i32 length) {
     uint32_t hash = 2166136261u;
-    for (int i = 0; i < length; i++) {
+    for (i32 i = 0; i < length; i++) {
         hash ^= (uint8_t) key[i];
         hash *= 16777619;
     }
@@ -173,5 +186,7 @@ print_object(struct value value) {
         case OBJECT_INSTANCE:
             printf("%s instance", AS_INSTANCE(value)->class->name->chars);
             break;
+        case OBJECT_BOUND_METHOD:
+            print_function(AS_BOUND_METHOD(value)->method->function);
     }
 }

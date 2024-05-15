@@ -73,6 +73,9 @@ init_vm() {
     init_table(&vm.globals);
     init_table(&vm.strings);
 
+    vm.init_string = nullptr;
+    vm.init_string = copy_string("init", 4);
+
     define_native("clock", clock_native);
 }
 
@@ -80,6 +83,7 @@ void
 free_vm() {
     free_table(&vm.strings);
     free_table(&vm.globals);
+    vm.init_string = nullptr;
     free_objects();
 }
 
@@ -101,7 +105,7 @@ peek(i32 distance) {
 }
 
 static bool
-call(struct object_closure* closure, i32 arg_count) {
+call(struct object_closure closure[static 1], i32 arg_count) {
     if (arg_count != closure->function->arity) {
         runtime_error(
             "Expected %d arguments but got %d.", closure->function->arity,
@@ -140,7 +144,20 @@ call_value(struct value callee, i32 arg_count) {
             case OBJECT_CLASS: {
                 struct object_class* class   = AS_CLASS(callee);
                 vm.stack_top[-arg_count - 1] = OBJECT_VAL(new_instance(class));
-                return true;
+                struct value initializer;
+                if (table_get(&class->methods, vm.init_string, &initializer)) {
+                    return call(AS_CLOSURE(initializer), arg_count);
+                } else {
+                    runtime_error(
+                        "Expected 0 arguments but got %d.", arg_count
+                    );
+                    return false;
+                }
+            }
+            case OBJECT_BOUND_METHOD: {
+                struct object_bound_method* bound = AS_BOUND_METHOD(callee);
+                vm.stack_top[-arg_count - 1]      = bound->receiver;
+                return call(bound->method, arg_count);
             }
             default:
                 break; // Non-callable object type.
@@ -150,8 +167,57 @@ call_value(struct value callee, i32 arg_count) {
     return false;
 }
 
+static bool
+invoke_from_class(
+    struct object_class* class, struct object_string* name, int arg_count
+) {
+    struct value method;
+    if (!table_get(&class->methods, name, &method)) {
+        runtime_error("Undefined property '%s'.", name->chars);
+        return false;
+    }
+    return call(AS_CLOSURE(method), arg_count);
+}
+
+static bool
+invoke(struct object_string name[static 1], i32 arg_count) {
+    struct value receiver = peek(arg_count);
+
+    if (!IS_INSTANCE(receiver)) {
+        runtime_error("Only instances have methods.");
+        return false;
+    }
+
+    struct object_instance* instance = AS_INSTANCE(receiver);
+
+    struct value value;
+    if (table_get(&instance->fields, name, &value)) {
+        vm.stack_top[-arg_count - 1] = value;
+        return call_value(value, arg_count);
+    }
+
+    return invoke_from_class(instance->class, name, arg_count);
+}
+
+static bool
+bind_method(
+    struct object_class class[static 1], struct object_string name[static 1]
+) {
+    struct value method;
+    if (!table_get(&class->methods, name, &method)) {
+        runtime_error("Undefined property '%s'.", name->chars);
+        return false;
+    }
+
+    struct object_bound_method* bound
+        = new_bound_method(peek(0), AS_CLOSURE(method));
+    pop();
+    push(OBJECT_VAL(bound));
+    return true;
+}
+
 static struct object_upvalue*
-capture_upvalue(struct value* local) {
+capture_upvalue(struct value local[static 1]) {
     struct object_upvalue* prev_upvalue = nullptr;
     struct object_upvalue* upvalue      = vm.open_upvalues;
     while (upvalue != nullptr && upvalue->location > local) {
@@ -174,13 +240,21 @@ capture_upvalue(struct value* local) {
 }
 
 static void
-close_upvalues(struct value* last) {
+close_upvalues(struct value last[static 1]) {
     while (vm.open_upvalues != nullptr && vm.open_upvalues->location >= last) {
         struct object_upvalue* upvalue = vm.open_upvalues;
         upvalue->closed                = *upvalue->location;
         upvalue->location              = &upvalue->closed;
         vm.open_upvalues               = upvalue->next;
     }
+}
+
+static void
+define_method(struct object_string name[static 1]) {
+    struct value method        = peek(0);
+    struct object_class* class = AS_CLASS(peek(1));
+    table_set(&class->methods, name, method);
+    pop();
 }
 
 static bool
@@ -317,8 +391,11 @@ run() {
                     push(value);
                     break;
                 }
-                runtime_error("Undefined property '%s'.", name->chars);
-                return INTERPRET_RUNTIME_ERROR;
+
+                if (!bind_method(instance->class, name)) {
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                break;
             }
             case OP_SET_PROPERTY: {
                 if (!IS_INSTANCE(peek(1))) {
@@ -444,6 +521,18 @@ run() {
             }
             case OP_CLASS: {
                 push(OBJECT_VAL(new_class(READ_STRING())));
+                break;
+            }
+            case OP_METHOD:
+                define_method(READ_STRING());
+                break;
+            case OP_INVOKE: {
+                struct object_string* method = READ_STRING();
+                i32 arg_count                = READ_BYTE();
+                if (!invoke(method, arg_count)) {
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                frame = &vm.frames[vm.frame_count - 1];
                 break;
             }
         }

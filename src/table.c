@@ -64,13 +64,13 @@ table_get(struct table* table, struct object_string* key, struct value* value) {
 static void
 adjust_capacity(struct table* table, int capacity) {
     struct entry* entries = ALLOCATE(struct entry, capacity);
-    for (int i = 0; i < capacity; i++) {
+    for (i32 i = 0; i < capacity; i++) {
         entries[i].key   = nullptr;
         entries[i].value = NIL_VAL;
     }
 
     table->count = 0;
-    for (int i = 0; i < table->capacity; i++) {
+    for (i32 i = 0; i < table->capacity; i++) {
         struct entry* entry = &table->entries[i];
         if (entry->key == nullptr) {
             continue;
@@ -92,7 +92,7 @@ table_set(
     struct table table[static 1], struct object_string* key, struct value value
 ) {
     if (table->count + 1 > table->capacity * TABLE_MAX_LOAD) {
-        int capacity = grow_capacity(table->capacity);
+        i32 capacity = grow_capacity(table->capacity);
         adjust_capacity(table, capacity);
     }
 
@@ -127,7 +127,7 @@ table_delete(struct table* table, struct object_string* key) {
 
 void
 tableAddAll(struct table* from, struct table* to) {
-    for (int i = 0; i < from->capacity; i++) {
+    for (i32 i = 0; i < from->capacity; i++) {
         struct entry* entry = &from->entries[i];
         if (entry->key != nullptr) {
             table_set(to, entry->key, entry->value);
@@ -174,7 +174,7 @@ table_remove_white(struct table* table) {
 
 void
 mark_table(struct table* table) {
-    for (int i = 0; i < table->capacity; i++) {
+    for (i32 i = 0; i < table->capacity; i++) {
         struct entry* entry = &table->entries[i];
         mark_object((struct object*) entry->key);
         mark_value(entry->value);

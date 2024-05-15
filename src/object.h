@@ -7,20 +7,22 @@
 
 #define OBJECT_TYPE(value) (AS_OBJECT(value)->type)
 
-#define IS_STRING(value)   is_object_type(value, OBJECT_STRING)
-#define IS_FUNCTION(value) is_object_type(value, OBJECT_FUNCTION)
-#define IS_NATIVE(value)   is_object_type(value, OBJECT_NATIVE)
-#define IS_CLOSURE(value)  is_object_type(value, OBJECT_CLOSURE)
-#define IS_CLASS(value)    is_object_type(value, OBJECT_CLASS)
-#define IS_INSTANCE(value) is_object_type(value, OBJECT_INSTANCE)
+#define IS_STRING(value)       is_object_type(value, OBJECT_STRING)
+#define IS_FUNCTION(value)     is_object_type(value, OBJECT_FUNCTION)
+#define IS_NATIVE(value)       is_object_type(value, OBJECT_NATIVE)
+#define IS_CLOSURE(value)      is_object_type(value, OBJECT_CLOSURE)
+#define IS_CLASS(value)        is_object_type(value, OBJECT_CLASS)
+#define IS_INSTANCE(value)     is_object_type(value, OBJECT_INSTANCE)
+#define IS_BOUND_METHOD(value) is_object_type(value, OBJECT_BOUND_METHOD)
 
-#define AS_STRING(value)   ((struct object_string*) AS_OBJECT(value))
-#define AS_CSTRING(value)  (((struct object_string*) AS_OBJECT(value))->chars)
-#define AS_FUNCTION(value) ((struct object_function*) AS_OBJECT(value))
-#define AS_NATIVE(value)   (((struct object_native*) AS_OBJECT(value))->function)
-#define AS_CLOSURE(value)  ((struct object_closure*) AS_OBJECT(value))
-#define AS_CLASS(value)    ((struct object_class*) AS_OBJECT(value))
-#define AS_INSTANCE(value) ((struct object_instance*) AS_OBJECT(value))
+#define AS_STRING(value)       ((struct object_string*) AS_OBJECT(value))
+#define AS_CSTRING(value)      (((struct object_string*) AS_OBJECT(value))->chars)
+#define AS_FUNCTION(value)     ((struct object_function*) AS_OBJECT(value))
+#define AS_NATIVE(value)       (((struct object_native*) AS_OBJECT(value))->function)
+#define AS_CLOSURE(value)      ((struct object_closure*) AS_OBJECT(value))
+#define AS_CLASS(value)        ((struct object_class*) AS_OBJECT(value))
+#define AS_INSTANCE(value)     ((struct object_instance*) AS_OBJECT(value))
+#define AS_BOUND_METHOD(value) ((struct object_bound_method*) AS_OBJECT(value))
 
 enum object_type {
     OBJECT_STRING,
@@ -30,11 +32,7 @@ enum object_type {
     OBJECT_UPVALUE,
     OBJECT_CLASS,
     OBJECT_INSTANCE,
-};
-
-enum function_type {
-    TYPE_FUNCTION,
-    TYPE_SCRIPT,
+    OBJECT_BOUND_METHOD,
 };
 
 struct object {
@@ -82,6 +80,7 @@ struct object_closure {
 struct object_class {
     struct object object;
     struct object_string* name;
+    struct table methods;
 };
 
 struct object_instance {
@@ -89,7 +88,15 @@ struct object_instance {
     struct object_class* class;
     struct table fields;
 };
+struct object_bound_method {
+    struct object object;
+    struct value receiver;
+    struct object_closure* method;
+};
 
+struct object_bound_method* new_bound_method(
+    struct value receiver, struct object_closure method[static 1]
+);
 struct object_class* new_class(struct object_string name[static 1]);
 struct object_closure* new_closure(struct object_function function[static 1]);
 struct object_function* new_function();

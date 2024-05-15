@@ -36,6 +36,8 @@ enum op_code {
     OP_CLOSE_UPVALUE,
     OP_RETURN,
     OP_CLASS,
+    OP_METHOD,
+    OP_INVOKE,
 };
 
 struct chunk {
