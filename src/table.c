@@ -23,7 +23,7 @@ free_table(struct table table[static 1]) {
 
 static struct entry*
 find_entry(struct entry* entries, i32 capacity, struct object_string* key) {
-    uint32_t index          = key->hash % capacity;
+    uint32_t index          = key->hash & (capacity - 1);
     struct entry* tombstone = nullptr;
     for (;;) {
         struct entry* entry = &entries[index];
@@ -42,7 +42,7 @@ find_entry(struct entry* entries, i32 capacity, struct object_string* key) {
             return entry;
         }
 
-        index = (index + 1) % capacity;
+        index = (index + 1) & (capacity - 1);
     }
 }
 
@@ -143,7 +143,7 @@ table_find_string(
         return nullptr;
     }
 
-    u32 index = hash % table->capacity;
+    u32 index = hash & (table->capacity - 1);
     for (;;) {
         struct entry* entry = &table->entries[index];
         if (entry->key == nullptr) {
@@ -158,7 +158,7 @@ table_find_string(
             return entry->key;
         }
 
-        index = (index + 1) % table->capacity;
+        index = (index + 1) & (table->capacity - 1);
     }
 }
 

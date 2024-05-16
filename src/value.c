@@ -36,6 +36,17 @@ free_value_array(struct value_array array[static 1]) {
 
 void
 print_value(struct value value) {
+#ifdef NAN_BOXING
+    if (IS_BOOL(value)) {
+        printf(AS_BOOL(value) ? "true" : "false");
+    } else if (IS_NIL(value)) {
+        printf("nil");
+    } else if (IS_NUMBER(value)) {
+        printf("%g", AS_NUMBER(value));
+    } else if (IS_OBJECT(value)) {
+        print_object(value);
+    }
+#else
     switch (value.type) {
         case VAL_BOOL:
             printf(AS_BOOL(value) ? "true" : "false");
@@ -50,10 +61,17 @@ print_value(struct value value) {
             print_object(value);
             break;
     }
+#endif
 }
 
 bool
 values_equal(struct value a, struct value b) {
+#ifdef NAN_BOXING
+    if (IS_NUMBER(a) && IS_NUMBER(b)) {
+        return AS_NUMBER(a) == AS_NUMBER(b);
+    }
+    return a.value == b.value;
+#else
     if (a.type != b.type) {
         return false;
     }
@@ -69,4 +87,5 @@ values_equal(struct value a, struct value b) {
         default:
             return false; // Unreachable.
     }
+#endif
 }
